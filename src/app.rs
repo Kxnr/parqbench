@@ -2,7 +2,9 @@ use eframe::{egui, epi};
 use egui::{Response, WidgetText, Ui};
 use native_dialog::FileDialog;
 use std::path::PathBuf;
-// use parquet::file::reader::SerializedFileReader;
+use std::fs::File;
+use parquet::file::reader::{FileReader, SerializedFileReader};
+use parquet::file::metadata::ParquetMetaData;
 
 #[derive(PartialEq)]
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
@@ -40,12 +42,13 @@ impl ExtraInteractions for Ui {
 
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
-#[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
-#[cfg_attr(feature = "persistence", serde(default))] // if we add new fields, give them default values when deserializing old state
+// #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
+// #[cfg_attr(feature = "persistence", serde(default))] // if we add new fields, give them default values when deserializing old state
 pub struct TemplateApp {
     // #[cfg_attr(feature = "persistence", serde(skip))]
     table: Option<PathBuf>,
     menu_panel: Option<MenuPanels>,
+    metadata: Option<ParquetMetaData>,
 }
 
 impl Default for TemplateApp {
@@ -54,6 +57,7 @@ impl Default for TemplateApp {
             // Example stuff:
             table: None,
             menu_panel: None,
+            metadata: None,
         }
     }
 }
@@ -69,34 +73,42 @@ impl epi::App for TemplateApp {
         _frame: &epi::Frame,
         _storage: Option<&dyn epi::Storage>,
     ) {
-        #[cfg(feature = "persistence")]
-        if let Some(storage) = _storage {
-            *self = epi::get_value(storage, epi::APP_KEY).unwrap_or_default()
-        }
+        // #[cfg(feature = "persistence")]
+        // if let Some(storage) = _storage {
+        //     *self = epi::get_value(storage, epi::APP_KEY).unwrap_or_default()
+        // }
     }
 
-    #[cfg(feature = "persistence")]
-    fn save(&mut self, storage: &mut dyn epi::Storage) {
-        epi::set_value(storage, epi::APP_KEY, self);
-    }
+    // #[cfg(feature = "persistence")]
+    // fn save(&mut self, storage: &mut dyn epi::Storage) {
+    //     epi::set_value(storage, epi::APP_KEY, self);
+    // }
 
     fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
-        let Self {table, menu_panel} = self;
+        let Self {table, menu_panel, metadata} = self;
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     ui.menu_button("About", |ui| {
                         ui.label("Built with egui");
                     });
 
-                    if ui.button("Open...").clicked(){
+                    if ui.button("Open...").clicked() {
                         *table = FileDialog::new()
                             .set_location("~")
                             .show_open_single_file()
                             .unwrap();
+
+                        if let Ok(file) = File::open(table.as_ref().unwrap()) {
+                            let reader = SerializedFileReader::new(file).unwrap();
+                            *metadata = Some(reader.metadata().clone());
+                        }
+
                     }
+
+                    // TODO: load/initialize data
+                    // TODO: check that this doesn't fail!?
 
                     if ui.button("Quit").clicked() {
                         frame.quit();
@@ -106,14 +118,9 @@ impl epi::App for TemplateApp {
         });
 
 
-        // show expand panel button
-        // TODO: the collapse doesn't look like it'll work well. Instead, add a vertical set of
-        // TODO: buttons in a narrow panel that will toggle other panels. Images will likely be
-        // TODO: be best for this
         egui::SidePanel::left("side_panel").min_width(0f32).resizable(false).show(ctx, |ui| {
             ui.vertical(|ui| {
-                // TODO: pop out panels with these buttons
-                // tooltips
+                // TODO: tooltips
                 let _ = ui.toggleable_value(menu_panel, MenuPanels::Schema, "\u{FF5B}");
                 let _ = ui.toggleable_value(menu_panel, MenuPanels::Info, "\u{2139}");
                 let _ = ui.toggleable_value(menu_panel, MenuPanels::Filter, "\u{1F50E}");
@@ -131,6 +138,19 @@ impl epi::App for TemplateApp {
                     MenuPanels::Info => {
                         egui::SidePanel::left("side_panel").show(ctx, |ui| {
                             ui.label("info menu");
+                            match metadata {
+                                Some(data) => {
+                                    ui.label(format!("{}", data.file_metadata().num_rows()));
+                                    ui.label(format!("{}", data.file_metadata().version()));
+                                },
+                                _ => {}
+                            }
+
+                            // rows
+                            // columns
+                            // data size
+                            // compressed size
+                            // compression method
                         });
                     },
                     MenuPanels::Filter => {
@@ -150,11 +170,13 @@ impl epi::App for TemplateApp {
         });
 
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            match table {
-                Some(table) => {ui.label(&format!("{:#?}", table));},
-                None => {ui.label("no file set");},
-            }
-            egui::warn_if_debug_build(ui);
+            ui.horizontal(|ui| {
+                match table {
+                    Some(table) => { ui.label(&format!("{:#?}", table)); },
+                    None => { ui.label("no file set"); },
+                }
+                egui::warn_if_debug_build(ui);
+            });
         });
     }
 }
