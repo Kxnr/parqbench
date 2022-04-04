@@ -12,8 +12,9 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 eframe = "0.17.0" # Gives us egui, epi and web+native backends
-parquet = "11.0.0"
+datafusion = "~7"
 native-dialog = "0.6.3"
+tokio = "~1"
 
 serde = { version = "1", features = ["derive"], optional = true }
 

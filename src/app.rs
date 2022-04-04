@@ -1,10 +1,16 @@
 use eframe::{egui, epi};
+use datafusion::arrow;
 use egui::{Response, WidgetText, Ui};
+use datafusion::execution::context::ExecutionContext;
+use datafusion::parquet::file::reader::{FileReader, SerializedFileReader};
+use datafusion::parquet::file::metadata::{ParquetMetaData};
+
 use native_dialog::FileDialog;
 use std::path::PathBuf;
 use std::fs::File;
-use parquet::file::reader::{FileReader, SerializedFileReader};
-use parquet::file::metadata::ParquetMetaData;
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::error::DataFusionError;
+use tokio::runtime::Runtime;
 
 #[derive(PartialEq)]
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
@@ -49,6 +55,7 @@ pub struct TemplateApp {
     table: Option<PathBuf>,
     menu_panel: Option<MenuPanels>,
     metadata: Option<ParquetMetaData>,
+    data: Option<Vec<arrow::record_batch::RecordBatch>>,
 }
 
 impl Default for TemplateApp {
@@ -58,8 +65,19 @@ impl Default for TemplateApp {
             table: None,
             menu_panel: None,
             metadata: None,
+            data: None
         }
     }
+}
+
+async fn print_parq(filename: &str) -> Result<bool, DataFusionError> {
+    let mut ctx = ExecutionContext::new();
+    let df = ctx.read_parquet(filename).await?;
+    let result: Vec<RecordBatch> = df.limit(100)?.collect().await?;
+    let pretty_result = arrow::util::pretty::pretty_format_batches(&result)?;
+    println!("{}", pretty_result);
+
+    return Ok(true);
 }
 
 impl epi::App for TemplateApp {
@@ -85,7 +103,7 @@ impl epi::App for TemplateApp {
     // }
 
     fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
-        let Self {table, menu_panel, metadata} = self;
+        let Self {table, menu_panel, metadata, data} = self;
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -101,10 +119,16 @@ impl epi::App for TemplateApp {
                             .unwrap();
 
                         if let Ok(file) = File::open(table.as_ref().unwrap()) {
+                            // use parquet to get metadata, reading is done by datafusion
                             let reader = SerializedFileReader::new(file).unwrap();
                             *metadata = Some(reader.metadata().clone());
+                            let rt = Runtime::new().unwrap();
+                            let loaded = rt.block_on(print_parq(table.as_ref().unwrap().to_str().unwrap()));
+                            match loaded {
+                                Ok(_) => {},
+                                _ => {ui.label("failure loading");}
+                            }
                         }
-
                     }
 
                     // TODO: load/initialize data
@@ -156,6 +180,7 @@ impl epi::App for TemplateApp {
                     MenuPanels::Filter => {
                         egui::SidePanel::left("side_panel").show(ctx, |ui| {
                             ui.label("filter menu");
+                            ui.input();
                         });
                     }
                 }
