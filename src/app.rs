@@ -102,6 +102,12 @@ impl epi::App for TemplateApp {
     //     epi::set_value(storage, epi::APP_KEY, self);
     // }
 
+    // TODO: format rows in df to rows in gui
+    // TODO: deal with paging/scrolling
+    // TODO: move data loading to separate thread and add wait spinner
+    // TODO: fill in side panels
+    // TODO: extend format compatibility
+
     fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
         let Self {table, menu_panel, metadata, data} = self;
 
