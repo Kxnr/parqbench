@@ -12,9 +12,20 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::error::DataFusionError;
 use tokio::runtime::Runtime;
 
+pub const LOREM_IPSUM_LONG: &str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam varius, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor. Ut ullamcorper, ligula eu tempor congue, eros est euismod turpis, id tincidunt sapien risus a quam. Maecenas fermentum consequat mi. Donec fermentum. Pellentesque malesuada nulla a mi. Duis sapien sem, aliquet nec, commodo eget, consequat quis, neque. Aliquam faucibus, elit ut dictum aliquet, felis nisl adipiscing sapien, sed malesuada diam lacus eget erat. Cras mollis scelerisque nunc. Nullam arcu. Aliquam consequat. Curabitur augue lorem, dapibus quis, laoreet et, pretium ac, nisi. Aenean magna nisl, mollis quis, molestie eu, feugiat in, orci. In hac habitasse platea dictumst.";
+
 #[derive(PartialEq)]
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 enum MenuPanels { Schema, Info, Filter}
+
+fn lorem_ipsum(ui: &mut egui::Ui) {
+    ui.with_layout(
+        egui::Layout::top_down(egui::Align::LEFT).with_cross_justify(true),
+        |ui| {
+            ui.label(egui::RichText::new(LOREM_IPSUM_LONG).small().weak());
+        },
+    );
+}
 
 trait ExtraInteractions {
     fn toggleable_value<Value: PartialEq>(
@@ -148,57 +159,55 @@ impl epi::App for TemplateApp {
         });
 
 
-        egui::SidePanel::left("side_panel").min_width(0f32).resizable(false).show(ctx, |ui| {
-            ui.vertical(|ui| {
-                // TODO: tooltips
-                let _ = ui.toggleable_value(menu_panel, MenuPanels::Schema, "\u{FF5B}");
-                let _ = ui.toggleable_value(menu_panel, MenuPanels::Info, "\u{2139}");
-                let _ = ui.toggleable_value(menu_panel, MenuPanels::Filter, "\u{1F50E}");
+        egui::SidePanel::left("side_panel").min_width(0f32).resizable(true).show(ctx, |ui| {
+
+            egui::SidePanel::left("side_panel").min_width(0f32).resizable(false).show_inside(ui, |ui| {
+                ui.vertical(|ui| {
+                    // TODO: tooltips
+                    let _ = ui.toggleable_value(menu_panel, MenuPanels::Schema, "\u{FF5B}");
+                    let _ = ui.toggleable_value(menu_panel, MenuPanels::Info, "\u{2139}");
+                    let _ = ui.toggleable_value(menu_panel, MenuPanels::Filter, "\u{1F50E}");
+                });
             });
-        });
 
-        match menu_panel {
-            Some(panel) => {
-                match panel {
-                    MenuPanels::Schema => {
-                        egui::SidePanel::left("side_panel").show(ctx, |ui| {
-                            ui.label("schema menu");
-                        });
-                    },
-                    MenuPanels::Info => {
-                        egui::SidePanel::left("side_panel").show(ctx, |ui| {
-                            ui.label("info menu");
-                            match metadata {
-                                Some(data) => {
-                                    ui.label(format!("{}", data.file_metadata().num_rows()));
-                                    ui.label(format!("{}", data.file_metadata().version()));
-                                },
-                                _ => {}
-                            }
+            match menu_panel {
+                Some(panel) => {
+                    match panel {
+                        MenuPanels::Schema => {
+                            egui::CentralPanel::default().show_inside(ui, |ui| {
+                                ui.label("schema menu");
+                            });
+                        },
+                        MenuPanels::Info => {
+                            egui::CentralPanel::default().show_inside(ui, |ui| {
+                                ui.label("info menu");
+                                match metadata {
+                                    Some(data) => {
+                                        ui.label(format!("{}", data.file_metadata().num_rows()));
+                                        ui.label(format!("{}", data.file_metadata().version()));
+                                    },
+                                    _ => {}
+                                }
 
-                            // rows
-                            // columns
-                            // data size
-                            // compressed size
-                            // compression method
-                        });
-                    },
-                    MenuPanels::Filter => {
-                        egui::SidePanel::left("side_panel").show(ctx, |ui| {
-                            ui.label("filter menu");
-                            ui.input();
-                        });
+                                // rows
+                                // columns
+                                // data size
+                                // compressed size
+                                // compression method
+                            });
+                        },
+                        MenuPanels::Filter => {
+                            egui::CentralPanel::default().show_inside(ui, |ui| {
+                                ui.label("filter menu");
+                                ui.input();
+                            });
+                        }
                     }
-                }
-            },
-            _ => {},
-        }
-
-
-        // TODO: table
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
+                },
+                _ => {},
+            }
         });
+
 
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -209,5 +218,15 @@ impl epi::App for TemplateApp {
                 egui::warn_if_debug_build(ui);
             });
         });
+
+
+        // TODO: table
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // The central panel the region left after adding TopPanel's and SidePanel's
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                lorem_ipsum(ui);
+            });
+        });
+
     }
 }
