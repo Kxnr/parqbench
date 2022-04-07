@@ -146,6 +146,8 @@ impl epi::App for TemplateApp {
                                 _ => {ui.label("failure loading");}
                             }
                         }
+
+                        ui.close_menu();
                     }
 
                     // TODO: load/initialize data
