@@ -159,53 +159,53 @@ impl epi::App for TemplateApp {
         });
 
 
-        egui::SidePanel::left("side_panel").min_width(0f32).resizable(true).show(ctx, |ui| {
+        egui::SidePanel::left("side_panel").min_width(0f32).max_width(400f32).resizable(true).show(ctx, |ui| {
 
-            egui::SidePanel::left("side_panel").min_width(0f32).resizable(false).show_inside(ui, |ui| {
+            ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     // TODO: tooltips
                     let _ = ui.toggleable_value(menu_panel, MenuPanels::Schema, "\u{FF5B}");
                     let _ = ui.toggleable_value(menu_panel, MenuPanels::Info, "\u{2139}");
                     let _ = ui.toggleable_value(menu_panel, MenuPanels::Filter, "\u{1F50E}");
                 });
-            });
 
-            match menu_panel {
-                Some(panel) => {
-                    match panel {
-                        MenuPanels::Schema => {
-                            egui::CentralPanel::default().show_inside(ui, |ui| {
-                                ui.label("schema menu");
-                            });
-                        },
-                        MenuPanels::Info => {
-                            egui::CentralPanel::default().show_inside(ui, |ui| {
-                                ui.label("info menu");
-                                match metadata {
-                                    Some(data) => {
-                                        ui.label(format!("{}", data.file_metadata().num_rows()));
-                                        ui.label(format!("{}", data.file_metadata().version()));
-                                    },
-                                    _ => {}
-                                }
+                match menu_panel {
+                    Some(panel) => {
+                        match panel {
+                            MenuPanels::Schema => {
+                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                    ui.label("schema menu");
+                                });
+                            },
+                            MenuPanels::Info => {
+                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                    ui.label("info menu");
+                                    match metadata {
+                                        Some(data) => {
+                                            ui.label(format!("{}", data.file_metadata().num_rows()));
+                                            ui.label(format!("{}", data.file_metadata().version()));
+                                        },
+                                        _ => {}
+                                    }
 
-                                // rows
-                                // columns
-                                // data size
-                                // compressed size
-                                // compression method
-                            });
-                        },
-                        MenuPanels::Filter => {
-                            egui::CentralPanel::default().show_inside(ui, |ui| {
-                                ui.label("filter menu");
-                                ui.input();
-                            });
+                                    // rows
+                                    // columns
+                                    // data size
+                                    // compressed size
+                                    // compression method
+                                });
+                            },
+                            MenuPanels::Filter => {
+                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                    ui.label("filter menu");
+                                    ui.input();
+                                });
+                            }
                         }
-                    }
-                },
-                _ => {},
-            }
+                    },
+                    _ => {},
+                }
+            });
         });
 
 
