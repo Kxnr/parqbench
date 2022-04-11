@@ -4,6 +4,7 @@ use egui::{Response, WidgetText, Ui};
 use datafusion::execution::context::ExecutionContext;
 use datafusion::parquet::file::reader::{FileReader, SerializedFileReader};
 use datafusion::parquet::file::metadata::{ParquetMetaData};
+// https://github.com/apache/arrow-rs/blob/master/arrow/src/util/display.rs
 
 use native_dialog::FileDialog;
 use std::path::PathBuf;
@@ -81,14 +82,14 @@ impl Default for TemplateApp {
     }
 }
 
-async fn print_parq(filename: &str) -> Result<bool, DataFusionError> {
+async fn print_parq(filename: &str) -> Result<Vec<RecordBatch>, DataFusionError> {
     let mut ctx = ExecutionContext::new();
     let df = ctx.read_parquet(filename).await?;
     let result: Vec<RecordBatch> = df.limit(100)?.collect().await?;
     let pretty_result = arrow::util::pretty::pretty_format_batches(&result)?;
     println!("{}", pretty_result);
 
-    return Ok(true);
+    return Ok(result);
 }
 
 impl epi::App for TemplateApp {
@@ -141,17 +142,12 @@ impl epi::App for TemplateApp {
                             *metadata = Some(reader.metadata().clone());
                             let rt = Runtime::new().unwrap();
                             let loaded = rt.block_on(print_parq(table.as_ref().unwrap().to_str().unwrap()));
-                            match loaded {
-                                Ok(_) => {},
-                                _ => {ui.label("failure loading");}
-                            }
+                            // TODO: load in separate thread, allow passing in query to reload
+                            *data = loaded.ok();
                         }
 
                         ui.close_menu();
                     }
-
-                    // TODO: load/initialize data
-                    // TODO: check that this doesn't fail!?
 
                     if ui.button("Quit").clicked() {
                         frame.quit();
