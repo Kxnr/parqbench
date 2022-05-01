@@ -1,10 +1,11 @@
-use eframe::{egui, epi};
+use eframe;
 use datafusion::arrow;
+use datafusion::arrow::util::display::{array_value_to_string};
 use egui::{Response, WidgetText, Ui};
+use egui_extras::{TableBuilder, StripBuilder, Size};
 use datafusion::execution::context::ExecutionContext;
 use datafusion::parquet::file::reader::{FileReader, SerializedFileReader};
-use datafusion::parquet::file::metadata::{ParquetMetaData};
-// https://github.com/apache/arrow-rs/blob/master/arrow/src/util/display.rs
+use datafusion::parquet::file::metadata::ParquetMetaData;
 
 use native_dialog::FileDialog;
 use std::path::PathBuf;
@@ -13,20 +14,9 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::error::DataFusionError;
 use tokio::runtime::Runtime;
 
-pub const LOREM_IPSUM_LONG: &str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam varius, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor. Ut ullamcorper, ligula eu tempor congue, eros est euismod turpis, id tincidunt sapien risus a quam. Maecenas fermentum consequat mi. Donec fermentum. Pellentesque malesuada nulla a mi. Duis sapien sem, aliquet nec, commodo eget, consequat quis, neque. Aliquam faucibus, elit ut dictum aliquet, felis nisl adipiscing sapien, sed malesuada diam lacus eget erat. Cras mollis scelerisque nunc. Nullam arcu. Aliquam consequat. Curabitur augue lorem, dapibus quis, laoreet et, pretium ac, nisi. Aenean magna nisl, mollis quis, molestie eu, feugiat in, orci. In hac habitasse platea dictumst.";
 
 #[derive(PartialEq)]
-#[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 enum MenuPanels { Schema, Info, Filter}
-
-fn lorem_ipsum(ui: &mut egui::Ui) {
-    ui.with_layout(
-        egui::Layout::top_down(egui::Align::LEFT).with_cross_justify(true),
-        |ui| {
-            ui.label(egui::RichText::new(LOREM_IPSUM_LONG).small().weak());
-        },
-    );
-}
 
 trait ExtraInteractions {
     fn toggleable_value<Value: PartialEq>(
@@ -58,27 +48,29 @@ impl ExtraInteractions for Ui {
 }
 
 
-
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
-// #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
-// #[cfg_attr(feature = "persistence", serde(default))] // if we add new fields, give them default values when deserializing old state
-pub struct TemplateApp {
-    // #[cfg_attr(feature = "persistence", serde(skip))]
+pub struct ParqBenchApp {
     table: Option<PathBuf>,
     menu_panel: Option<MenuPanels>,
     metadata: Option<ParquetMetaData>,
     data: Option<Vec<arrow::record_batch::RecordBatch>>,
 }
 
-impl Default for TemplateApp {
+impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
-            // Example stuff:
             table: None,
             menu_panel: None,
             metadata: None,
             data: None
         }
+    }
+}
+
+impl ParqBenchApp {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // TODO: set font size constants
+        Default::default()
     }
 }
 
@@ -92,35 +84,14 @@ async fn print_parq(filename: &str) -> Result<Vec<RecordBatch>, DataFusionError>
     return Ok(result);
 }
 
-impl epi::App for TemplateApp {
-    fn name(&self) -> &str {
-        "parqbench"
-    }
-
-    fn setup(
-        &mut self,
-        _ctx: &egui::Context,
-        _frame: &epi::Frame,
-        _storage: Option<&dyn epi::Storage>,
-    ) {
-        // #[cfg(feature = "persistence")]
-        // if let Some(storage) = _storage {
-        //     *self = epi::get_value(storage, epi::APP_KEY).unwrap_or_default()
-        // }
-    }
-
-    // #[cfg(feature = "persistence")]
-    // fn save(&mut self, storage: &mut dyn epi::Storage) {
-    //     epi::set_value(storage, epi::APP_KEY, self);
-    // }
-
+impl eframe::App for ParqBenchApp {
     // TODO: format rows in df to rows in gui
     // TODO: deal with paging/scrolling
     // TODO: move data loading to separate thread and add wait spinner
     // TODO: fill in side panels
     // TODO: extend format compatibility
 
-    fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let Self {table, menu_panel, metadata, data} = self;
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -144,6 +115,7 @@ impl epi::App for TemplateApp {
                             let loaded = rt.block_on(print_parq(table.as_ref().unwrap().to_str().unwrap()));
                             // TODO: load in separate thread, allow passing in query to reload
                             *data = loaded.ok();
+                            println!("{}", data.as_ref().unwrap()[0].schema().to_json().to_string());
                         }
 
                         ui.close_menu();
@@ -168,6 +140,7 @@ impl epi::App for TemplateApp {
                 });
 
                 match menu_panel {
+                    // TODO: looks like CollapsingState can accomplish this nicely
                     Some(panel) => {
                         match panel {
                             MenuPanels::Schema => {
@@ -180,8 +153,9 @@ impl epi::App for TemplateApp {
                                     ui.label("info menu");
                                     match metadata {
                                         Some(data) => {
-                                            ui.label(format!("{}", data.file_metadata().num_rows()));
-                                            ui.label(format!("{}", data.file_metadata().version()));
+                                            // set ui to vertical, maybe better with heading
+                                            ui.label(format!("Total rows: {}", data.file_metadata().num_rows()));
+                                            ui.label(format!("Parquet version: {}", data.file_metadata().version()));
                                         },
                                         _ => {}
                                     }
@@ -221,10 +195,47 @@ impl epi::App for TemplateApp {
         // TODO: table
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                lorem_ipsum(ui);
+            egui::ScrollArea::horizontal().show(ui, |ui| {
+                if let None = data {
+                    return;
+                }
+
+                TableBuilder::new(ui)
+                    .resizable(true)
+                    .striped(true)
+                    // TODO: set sizes in font units
+                    // TODO: set widths by type, max(type_width, total_space/columns)
+                    .columns(Size::initial(20.0).at_least(20.0), data.as_ref().unwrap()[0].num_columns())
+                    .header(20.0, |mut header| {
+                        for field in data.as_ref().unwrap()[0].schema().fields() {
+                            header.col(|ui| {
+                                ui.label(field.name());
+                            });
+                        }
+                    })
+                    .body(|mut body| {
+                        body.rows(20.0, 30, |row_index, mut row| {
+                            let mut offset = 0;
+                            let _data = data.as_ref().unwrap();
+                            for batch in _data {
+                                if row_index <= offset + batch.num_rows() {
+                                    for data_col in batch.columns() {
+                                        row.col(|ui| {
+                                            // while not efficient (as noted in docs) we need to display
+                                            // at most a few dozen records at a time (barring pathological
+                                            // tables with absurd numbers of columns) and should still
+                                            // have conversion times on the order of ns.
+                                            let value = array_value_to_string(data_col, row_index - offset).unwrap();
+                                            ui.label( value );
+                                        });
+                                    }
+                                } else {
+                                    offset += batch.num_rows();
+                                }
+                            }
+                        });
+                    });
             });
         });
-
     }
 }
