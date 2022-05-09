@@ -2,21 +2,36 @@ use eframe;
 use datafusion::arrow;
 use datafusion::arrow::util::display::{array_value_to_string};
 use egui::{Response, WidgetText, Ui};
-use egui_extras::{TableBuilder, StripBuilder, Size};
-use datafusion::execution::context::ExecutionContext;
-use datafusion::parquet::file::reader::{FileReader, SerializedFileReader};
-use datafusion::parquet::file::metadata::ParquetMetaData;
+use egui_extras::{TableBuilder, Size};
 
+// TODO: replace with rfd
 use native_dialog::FileDialog;
-use std::path::PathBuf;
 use std::fs::File;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::error::DataFusionError;
+use datafusion::prelude::*;
 use tokio::runtime::Runtime;
+use tracing_subscriber::registry::Data;
 
 
 #[derive(PartialEq)]
 enum MenuPanels { Schema, Info, Filter}
+
+trait SelectionDepth {
+    fn inc(
+        &mut self
+    ) -> Self;
+
+    fn depth<Depth: PartialEq>(
+        &mut self
+    ) -> Depth;
+
+    fn reset(
+        &mut self
+    ) -> Self;
+
+    fn icon<Icon: Into<WidgetText>>(
+        &mut self
+    ) -> Icon;
+}
 
 trait ExtraInteractions {
     fn toggleable_value<Value: PartialEq>(
@@ -25,6 +40,12 @@ trait ExtraInteractions {
         selected_value: Value,
         text: impl Into<WidgetText>,
     ) -> Response;
+
+    // fn sort_button<Value: PartialEq + SelectionDepth> (
+    //     &mut self,
+    //     current_value: &mut Option<Value>,
+    //     selected_value: Value,
+    // ) -> Response;
 }
 
 impl ExtraInteractions for Ui {
@@ -47,52 +68,94 @@ impl ExtraInteractions for Ui {
     }
 }
 
+pub struct DataFilters {
+    query: Option<String>,
+    sort: Option<String>,
+    ascending: bool,
+}
 
-/// We derive Deserialize/Serialize so we can persist app state on shutdown.
+impl Default for DataFilters {
+   fn default() -> Self {
+       Self {
+           query: None,
+           sort: None,
+           ascending: true,
+       }
+   }
+}
+
 pub struct ParqBenchApp {
-    table: Option<PathBuf>,
     menu_panel: Option<MenuPanels>,
-    metadata: Option<ParquetMetaData>,
+    datasource: Option<ExecutionContext>,
     data: Option<Vec<arrow::record_batch::RecordBatch>>,
+    filters: DataFilters,
+    runtime: tokio::runtime::Runtime,
 }
 
 impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
-            table: None,
             menu_panel: None,
-            metadata: None,
-            data: None
+            datasource: None,
+            data: None,
+            filters: DataFilters::default(),
+            runtime: tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap(),
         }
     }
 }
 
 impl ParqBenchApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // TODO: set font size constants
+    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Default::default()
+    }
+
+    pub async fn load_datasource(&mut self, filename: &str, callback: &dyn FnOnce() -> ()) {
+        // TODO: handle data loading errors
+        let mut ctx = ExecutionContext::new();
+        ctx.register_parquet("main", filename).await.ok();
+        self.datasource = Some(ctx);
+        callback();
+    }
+
+    pub async fn update_cached_data(&mut self, callback: &dyn FnOnce() -> ()) {
+        // TODO: cloning the ctx should be cheap
+        if let Some(mut data) = &self.datasource {
+            let data = if let Some(query) = &self.filters.query {
+                data.sql(query).await.ok().unwrap()
+            } else {
+                data.sql("SELECT * FROM main").await.ok().unwrap()
+            };
+
+            let data = if let Some(sort) = &self.filters.sort {
+                // TODO: make nulls first a configurable parameter
+                data.sort(vec![col(sort).sort(self.filters.ascending, false)]).ok().unwrap()
+            } else {
+                data
+            };
+
+            self.data = data.collect().await.ok();
+            callback();
+        }
+    }
+
+    pub fn clear_filters(&mut self) {
+        self.filters = DataFilters::default();
     }
 }
 
-async fn print_parq(filename: &str) -> Result<Vec<RecordBatch>, DataFusionError> {
-    let mut ctx = ExecutionContext::new();
-    let df = ctx.read_parquet(filename).await?;
-    let result: Vec<RecordBatch> = df.limit(100)?.collect().await?;
-    let pretty_result = arrow::util::pretty::pretty_format_batches(&result)?;
-    println!("{}", pretty_result);
-
-    return Ok(result);
-}
-
 impl eframe::App for ParqBenchApp {
-    // TODO: format rows in df to rows in gui
-    // TODO: deal with paging/scrolling
     // TODO: move data loading to separate thread and add wait spinner
+    // TODO: ^ pt. 2, ad-hoc re-filtering of data
+    // TODO: load partitioned dataset
     // TODO: fill in side panels
-    // TODO: extend format compatibility
+    // TODO: panel layout improvement
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let Self {table, menu_panel, metadata, data} = self;
+
+        if !ctx.input().raw.dropped_files.is_empty() {
+            println!("dropped: {:?}", ctx.input().raw.dropped_files)
+        }
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -109,13 +172,10 @@ impl eframe::App for ParqBenchApp {
 
                         if let Ok(file) = File::open(table.as_ref().unwrap()) {
                             // use parquet to get metadata, reading is done by datafusion
-                            let reader = SerializedFileReader::new(file).unwrap();
-                            *metadata = Some(reader.metadata().clone());
                             let rt = Runtime::new().unwrap();
-                            let loaded = rt.block_on(print_parq(table.as_ref().unwrap().to_str().unwrap()));
-                            // TODO: load in separate thread, allow passing in query to reload
+                            let loaded = rt.block_on(load_parq(table.as_ref().unwrap().to_str().unwrap()));
                             *data = loaded.ok();
-                            println!("{}", data.as_ref().unwrap()[0].schema().to_json().to_string());
+                            // println!("{}", data.as_ref().unwrap()[0].schema().to_json().to_string());
                         }
 
                         ui.close_menu();
@@ -145,20 +205,23 @@ impl eframe::App for ParqBenchApp {
                         match panel {
                             MenuPanels::Schema => {
                                 egui::ScrollArea::vertical().show(ui, |ui| {
-                                    ui.label("schema menu");
+                                    ui.heading("Schema");
                                 });
                             },
                             MenuPanels::Info => {
                                 egui::ScrollArea::vertical().show(ui, |ui| {
-                                    ui.label("info menu");
-                                    match metadata {
-                                        Some(data) => {
-                                            // set ui to vertical, maybe better with heading
-                                            ui.label(format!("Total rows: {}", data.file_metadata().num_rows()));
-                                            ui.label(format!("Parquet version: {}", data.file_metadata().version()));
-                                        },
-                                        _ => {}
+                                    ui.vertical(|ui| {
+                                        ui.heading("File Info");
+                                        match metadata {
+                                            Some(data) => {
+                                                // set ui to vertical, maybe better with heading
+                                                    ui.label(format!("Total rows: {}", data.file_metadata().num_rows()));
+                                                    ui.label(format!("Parquet version: {}", data.file_metadata().version()));
+                                                // TODO:
+                                            },
+                                            _ => {}
                                     }
+                                    });
 
                                     // rows
                                     // columns
@@ -169,8 +232,8 @@ impl eframe::App for ParqBenchApp {
                             },
                             MenuPanels::Filter => {
                                 egui::ScrollArea::vertical().show(ui, |ui| {
-                                    ui.label("filter menu");
-                                    ui.input();
+                                    ui.label("Filter");
+                                    // TODO: input, update data, output for errors
                                 });
                             }
                         }
@@ -195,30 +258,35 @@ impl eframe::App for ParqBenchApp {
         // TODO: table
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
+            let text_height = egui::TextStyle::Body.resolve(ui.style()).size;
+
             egui::ScrollArea::horizontal().show(ui, |ui| {
                 if let None = data {
                     return;
                 }
 
                 TableBuilder::new(ui)
-                    .resizable(true)
                     .striped(true)
                     // TODO: set sizes in font units
                     // TODO: set widths by type, max(type_width, total_space/columns)
-                    .columns(Size::initial(20.0).at_least(20.0), data.as_ref().unwrap()[0].num_columns())
-                    .header(20.0, |mut header| {
+                    // TODO: show 'drag file to load' before loaded
+                    .columns(Size::initial(8.0*text_height).at_least(8.0*text_height), data.as_ref().unwrap()[0].num_columns())
+                    .resizable(true)
+                    .header(text_height * 4.0, |mut header| {
                         for field in data.as_ref().unwrap()[0].schema().fields() {
                             header.col(|ui| {
-                                ui.label(field.name());
+                                // TODO: sort with arrow, use 3 position switch
+                                ui.button("\u{2195}");
+                                ui.label(format!("{}", field.name()));
                             });
                         }
                     })
-                    .body(|mut body| {
-                        body.rows(20.0, 30, |row_index, mut row| {
+                    .body(|body| {
+                        body.rows(text_height, metadata.as_ref().unwrap().file_metadata().num_rows() as usize, |row_index, mut row| {
                             let mut offset = 0;
                             let _data = data.as_ref().unwrap();
                             for batch in _data {
-                                if row_index <= offset + batch.num_rows() {
+                                if row_index < offset + batch.num_rows() {
                                     for data_col in batch.columns() {
                                         row.col(|ui| {
                                             // while not efficient (as noted in docs) we need to display

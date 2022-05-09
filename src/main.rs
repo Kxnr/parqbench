@@ -9,7 +9,7 @@ fn main() {
 
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
-        "eframe template",
+        "ParqBench",
         native_options,
         Box::new(|cc| Box::new(parqbench::ParqBenchApp::new(cc))),
     );
