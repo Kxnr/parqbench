@@ -3,6 +3,8 @@ use datafusion::arrow;
 use datafusion::arrow::util::display::{array_value_to_string};
 use egui::{Response, WidgetText, Ui};
 use egui_extras::{TableBuilder, Size};
+use std::future::{Future, Ready};
+use std::marker::Send;
 
 // TODO: replace with rfd
 use native_dialog::FileDialog;
@@ -10,6 +12,7 @@ use std::fs::File;
 use datafusion::prelude::*;
 use tokio::runtime::Runtime;
 use tracing_subscriber::registry::Data;
+use arrow::record_batch::RecordBatch;
 
 
 #[derive(PartialEq)]
@@ -84,22 +87,29 @@ impl Default for DataFilters {
    }
 }
 
-pub struct ParqBenchApp {
+// TODO: does this need to be Send + Sync?
+pub struct ParqBenchApp<'a> {
     menu_panel: Option<MenuPanels>,
+    table_name: &'a str,
     datasource: Option<ExecutionContext>,
-    data: Option<Vec<arrow::record_batch::RecordBatch>>,
+    data: Option<RecordBatch>,
     filters: DataFilters,
+
+    // accessed only by methods
     runtime: tokio::runtime::Runtime,
+    task: Option<Future>,
 }
 
 impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
             menu_panel: None,
+            table_name: "main",
             datasource: None,
             data: None,
             filters: DataFilters::default(),
             runtime: tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap(),
+            task: None,
         }
     }
 }
@@ -109,37 +119,77 @@ impl ParqBenchApp {
         Default::default()
     }
 
-    pub async fn load_datasource(&mut self, filename: &str, callback: &dyn FnOnce() -> ()) {
+    // TODO: encapsulate queing to runtime
+    pub async fn load_datasource(&mut self, filename: &str, callback: fn() -> ()) {
         // TODO: handle data loading errors
         let mut ctx = ExecutionContext::new();
-        ctx.register_parquet("main", filename).await.ok();
+        ctx.register_parquet(&self.table_name, filename).await.ok();
         self.datasource = Some(ctx);
         callback();
     }
 
-    pub async fn update_cached_data(&mut self, callback: &dyn FnOnce() -> ()) {
-        // TODO: cloning the ctx should be cheap
-        if let Some(mut data) = &self.datasource {
+    pub async fn update_data_query(&mut self, callback: fn() -> ()) {
+        // cloning the execution context is cheap by design
+        if let Some(mut data) = self.datasource.clone() {
             let data = if let Some(query) = &self.filters.query {
                 data.sql(query).await.ok().unwrap()
             } else {
-                data.sql("SELECT * FROM main").await.ok().unwrap()
+                // FIXME: this is horrible
+                data.sql(format!("SELECT * FROM {}", self.table_name).as_str()).await.ok().unwrap()
             };
 
             let data = if let Some(sort) = &self.filters.sort {
                 // TODO: make nulls first a configurable parameter
-                data.sort(vec![col(sort).sort(self.filters.ascending, false)]).ok().unwrap()
+                data.sort(vec![col(sort).sort(*self.filters.ascending, false)]).ok().unwrap()
             } else {
                 data
             };
 
-            self.data = data.collect().await.ok();
+            let data = data.collect().await.ok();
+            match data {
+                Some(data) => {
+                    self.data = RecordBatch::concat(&data[0].schema(), &data).ok();
+                }
+                _ => {
+                    self.data = None
+                }
+            }
+
             callback();
         }
     }
 
+    pub async fn sort_data(&mut self) -> () {
+        // TODO: use kernel to sort loaded data
+
+    }
+
     pub fn clear_filters(&mut self) {
         self.filters = DataFilters::default();
+    }
+
+    pub fn data_pending(&self) -> bool {
+        // hide implementation details of waiting for data to load
+        if let Some(task) = *self.task {
+            if task.poll().is_ready() {
+                *self.task = None;
+                false
+            }
+        }
+        else {
+            true
+        }
+    }
+
+    pub fn run_future<F>(&mut self, future: F) -> ()
+    where F: Future + Send,
+          F::Output: Send
+    {
+        if self.data_pending() {
+            // FIXME
+            panic!("Cannot schedule future when future already running");
+        }
+        self.task = Some(self.runtime.spawn(future));
     }
 }
 
@@ -153,7 +203,12 @@ impl eframe::App for ParqBenchApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let Self {table, menu_panel, metadata, data} = self;
 
+        if self.data_pending() {
+
+        }
+
         if !ctx.input().raw.dropped_files.is_empty() {
+            // TODO: load data
             println!("dropped: {:?}", ctx.input().raw.dropped_files)
         }
 
@@ -270,10 +325,10 @@ impl eframe::App for ParqBenchApp {
                     // TODO: set sizes in font units
                     // TODO: set widths by type, max(type_width, total_space/columns)
                     // TODO: show 'drag file to load' before loaded
-                    .columns(Size::initial(8.0*text_height).at_least(8.0*text_height), data.as_ref().unwrap()[0].num_columns())
+                    .columns(Size::initial(8.0*text_height).at_least(8.0*text_height), data.as_ref().unwrap().num_columns())
                     .resizable(true)
                     .header(text_height * 4.0, |mut header| {
-                        for field in data.as_ref().unwrap()[0].schema().fields() {
+                        for field in data.as_ref().unwrap().schema().fields() {
                             header.col(|ui| {
                                 // TODO: sort with arrow, use 3 position switch
                                 ui.button("\u{2195}");
@@ -283,23 +338,16 @@ impl eframe::App for ParqBenchApp {
                     })
                     .body(|body| {
                         body.rows(text_height, metadata.as_ref().unwrap().file_metadata().num_rows() as usize, |row_index, mut row| {
-                            let mut offset = 0;
                             let _data = data.as_ref().unwrap();
-                            for batch in _data {
-                                if row_index < offset + batch.num_rows() {
-                                    for data_col in batch.columns() {
-                                        row.col(|ui| {
-                                            // while not efficient (as noted in docs) we need to display
-                                            // at most a few dozen records at a time (barring pathological
-                                            // tables with absurd numbers of columns) and should still
-                                            // have conversion times on the order of ns.
-                                            let value = array_value_to_string(data_col, row_index - offset).unwrap();
-                                            ui.label( value );
-                                        });
-                                    }
-                                } else {
-                                    offset += batch.num_rows();
-                                }
+                            for data_col in _data.columns() {
+                                row.col(|ui| {
+                                    // while not efficient (as noted in docs) we need to display
+                                    // at most a few dozen records at a time (barring pathological
+                                    // tables with absurd numbers of columns) and should still
+                                    // have conversion times on the order of ns.
+                                    let value = array_value_to_string(data_col, row_index).unwrap();
+                                    ui.label( value );
+                                });
                             }
                         });
                     });
