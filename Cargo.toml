@@ -11,8 +11,8 @@ rust-version = "1.60"
 egui = "0.18.0"
 egui_extras = "0.18.0"
 eframe = { version = "0.18.0", features = ["persistence"] }
-datafusion = "~7"
-native-dialog = "0.6.3"
+datafusion = "~8"
+rfd = "~0.8"
 tokio = "~1"
 
 [features]

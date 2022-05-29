@@ -7,12 +7,11 @@ use std::future::{Future, Ready};
 use std::marker::Send;
 
 // TODO: replace with rfd
-use native_dialog::FileDialog;
-use std::fs::File;
+use rfd::AsyncFileDialog;
+use std::sync::Arc;
 use datafusion::prelude::*;
-use tokio::runtime::Runtime;
-use tracing_subscriber::registry::Data;
 use arrow::record_batch::RecordBatch;
+use tokio::task::JoinHandle;
 
 
 #[derive(PartialEq)]
@@ -71,48 +70,103 @@ impl ExtraInteractions for Ui {
     }
 }
 
+fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
+    RecordBatch()
+}
+
 pub struct DataFilters {
     sort: Option<String>,
+    table_name: String,
     ascending: bool,
-
-    // rather than move all data, just change our indexing to sort data
-    sort_map: Option<arrow::array::UInt32Array>
+    query: Option<String>,
 }
 
 impl Default for DataFilters {
    fn default() -> Self {
        Self {
            sort: None,
+           table_name: "main".to_string(),
            ascending: true,
-           sort_map: None
+           query: None,
        }
    }
 }
 
-// TODO: does this need to be Send + Sync?
-pub struct ParqBenchApp<'a> {
-    menu_panel: Option<MenuPanels>,
-    table_name: &'a str,
+
+pub struct ParquetData {
+    pub filename: String,
+    // pub metadata: ??,
+    pub data: RecordBatch,
+    dataframe: Arc<DataFrame>
+}
+
+impl ParquetData {
+    pub async fn query(filename: &str, filters: &DataFilters) -> Option<Self> {
+        let mut ctx = SessionContext::new();
+        ctx.register_parquet(filters.table_name.as_str(), filename, ParquetReadOptions::default()).await.ok();
+        // FIXME
+        match ctx.sql(filters.query.unwrap().as_str()).await.ok() {
+            Some(df) => {
+                if let Some(data) = df.collect().await.ok() {
+                    let data = concat_record_batches(data);
+                    Some(self::ParquetData { filename: filename.to_string(), data: data, dataframe: df })
+                }
+            },
+            None => {
+                None
+            }
+        }
+    }
+
+    pub async fn sort(self, &filters: DataFilters) -> Self {
+        let df = self.df.sort(vec![col(filters.sort_col).sort(filters.ascending, false)]);
+        match df {
+            Some(df) => {
+                self::ParquetData { filename: self.filename, data: self.data, dataframe: df }
+            },
+            None => {
+                self
+            }
+        }
+    }
+
+    pub async fn load(filename: &str) -> Option<Self> {
+        let mut ctx = SessionContext::new();
+        match ctx.read_parquet(filename, ParquetReadOptions::default()).await.ok() {
+            Some(df) => {
+                let data = df.collect().await.unwrap();
+                let data = concat_record_batches(data);
+                Some(self::ParquetData { filename: filename.to_string(), data: data, dataframe: df })
+            },
+            None => {
+                None
+            }
+        }
+    }
+
+    // fn update_metadata() {
+    //
+    // }
+}
+
+pub struct ParqBenchApp {
+    pub menu_panel: Option<MenuPanels>,
 
     // Execution context gives us metadata that we can't get from RecordBatch,
     // and lets us re-query with sql.
-    // TODO: maybe better to store filename, metadata, and data? we can always re-construct the
-    // TODO: context, though we have to construct it to get metadata in the first place.
-    datasource: Option<ExecutionContext>,
-    data: Option<RecordBatch>,
-    filters: DataFilters,
+    pub data: Option<ParquetData>,
+    pub filters: DataFilters,
 
     // accessed only by methods
     runtime: tokio::runtime::Runtime,
-    task: Option<Future>,
+    task: Option<JoinHandle<_>>,
 }
 
 impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
             menu_panel: None,
-            table_name: "main",
-            datasource: None,
+            // table_name: "main".to_string(),
             data: None,
             filters: DataFilters::default(),
             runtime: tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap(),
@@ -126,73 +180,11 @@ impl ParqBenchApp {
         Default::default()
     }
 
-    // TODO: encapsulate queing to runtime
-    pub async fn load_datasource(&mut self, filename: &str, callback: fn() -> ()) {
-        // TODO: handle data loading errors
-        let mut ctx = ExecutionContext::new();
-        ctx.register_parquet(&self.table_name, filename).await.ok();
-        self.datasource = Some(ctx);
-        self.filters = DataFilters::default();
-
-        // FIXME: for the moment, we load all data. This will be updated to pop out the
-        // query panel, include a default query, and prompt to query data in case dataset is
-        // too large for loading directly. Data must be loaded into memory, as this project
-        // prioritizes the ability to sort/filter data over the ability to handle the very
-        // largest of datasets. While this could be done on disk, the hybrid of rendered data in
-        // memory and source on disk is deemed a suitable compromise for the moment.
-        self.data = ExecutionContext::new().read_parquet(filename).collect().await?;
-        callback();
-    }
-
-    pub async fn update_data_query(&mut self, query: &str, callback: fn() -> ()) {
-        // cloning the execution context is cheap by design
-        if let Some(mut data) = self.datasource.clone() {
-            let data=  {
-                data.sql(&self.filters.query).await.ok().unwrap()
-            };
-            // else {
-            //     // FIXME: this is horrible
-            //     data.sql(format!("SELECT * FROM {}", self.table_name).as_str()).await.ok().unwrap()
-            // };
-
-            // let data = if let Some(sort) = &self.filters.sort {
-            //     // TODO: make nulls first a configurable parameter
-            //     // TODO: check that column still exists post-query
-            //     data.sort(vec![col(sort).sort(*self.filters.ascending, false)]).ok().unwrap()
-            // } else {
-            //     data
-            // };
-
-            let data = data.collect().await.ok();
-            match data {
-                Some(data) => {
-                    self.data = RecordBatch::concat(&data[0].schema(), &data).ok();
-                }
-                _ => {
-                    self.data = None
-                }
-            }
-
-            callback();
-        }
-    }
-
-    pub async fn sort_data(&mut self) -> () {
-        if let Some(filter_col) = *self.filters.sort {
-            // TODO: potential panic if filters and data are out of sync
-            let filter_index = *self.data.ok().schema().index_of(filter_col);
-
-            // though it requires jumping through some hoops, we store the indices rather than
-            // actually twiddling data. TODO: make data struct to encapsulate this mask.
-            self.filters.sort_map = arrow::compute::sort_to_indices(*self.data.ok().column(filter_index), None, None).ok();
-        }
-    }
-
     pub fn clear_filters(&mut self) {
         self.filters = DataFilters::default();
     }
 
-    pub fn data_pending(&self) -> bool {
+    pub fn future_pending(&self) -> bool {
         // hide implementation details of waiting for data to load
         if let Some(task) = *self.task {
             if task.poll().is_ready() {
@@ -205,34 +197,38 @@ impl ParqBenchApp {
         }
     }
 
-    pub fn run_future<F>(&mut self, future: F) -> ()
+    pub fn run_future<F>(&mut self, future: F, ctx: &egui::Context) -> ()
     where F: Future + Send,
           F::Output: Send
     {
+        async fn inner<F>(future: F, ctx: &egui::Context) {
+            future.await;
+            ctx.request_repaint();
+        }
+
         if self.data_pending() {
-            // FIXME
+            // FIXME, use vec of tasks?
             panic!("Cannot schedule future when future already running");
         }
-        self.task = Some(self.runtime.spawn(future));
+        self.task = Some(self.runtime.spawn(inner::<F>(future, ctx)));
     }
 
     pub fn format_value(&self, col: &str, row: usize) -> &str {
-        let row = if let Some(map) = *self.filters.sort_map {
-            map[row]
-        } else {
-            row
-        };
-
-        array_value_to_string(col, row).ok().as_str()
+        if let Some(da) = *self.data {
+            let col = da[col];
+            array_value_to_string(col, row).ok().as_str()
+        }
+        ""
     }
 }
 
 impl eframe::App for ParqBenchApp {
     // TODO: move data loading to separate thread and add wait spinner
-    // TODO: ^ pt. 2, ad-hoc re-filtering of data
     // TODO: load partitioned dataset
     // TODO: fill in side panels
     // TODO: panel layout improvement
+    // TODO: better file dialog
+    // TODO: notification of loading failures
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 
@@ -283,33 +279,21 @@ impl eframe::App for ParqBenchApp {
                             MenuPanels::Schema => {
                                 egui::ScrollArea::vertical().show(ui, |ui| {
                                     ui.heading("Schema");
+                                    ui.label("Not Yet Implemented");
                                 });
                             },
                             MenuPanels::Info => {
                                 egui::ScrollArea::vertical().show(ui, |ui| {
                                     ui.vertical(|ui| {
                                         ui.heading("File Info");
-                                    //     match metadata {
-                                    //         Some(data) => {
-                                    //             // set ui to vertical, maybe better with heading
-                                    //             ui.label(format!("Total rows: {}", data.file_metadata().num_rows()));
-                                    //             ui.label(format!("Parquet version: {}", data.file_metadata().version()));
-                                    //             // TODO:
-                                    //         },
-                                    //         _ => {}
-                                    // }
+                                        ui.label("Not Yet Implemented");
                                     });
-
-                                    // rows
-                                    // columns
-                                    // data size
-                                    // compressed size
-                                    // compression method
                                 });
                             },
                             MenuPanels::Filter => {
                                 egui::ScrollArea::vertical().show(ui, |ui| {
                                     ui.label("Filter");
+                                    // ui.text_edit_singleline();
                                     // TODO: input, update data, output for errors
                                 });
                             }
