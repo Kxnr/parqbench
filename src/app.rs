@@ -20,7 +20,7 @@ enum MenuPanels { Schema, Info, Filter}
 trait SelectionDepth {
     fn inc(
         &mut self
-    ) -> Self;
+    ) -> Option<Self>;
 
     fn depth<Depth: PartialEq>(
         &mut self
@@ -31,7 +31,7 @@ trait SelectionDepth {
     ) -> Self;
 
     fn icon<Icon: Into<WidgetText>>(
-        &mut self
+        &self
     ) -> Icon;
 }
 
@@ -43,11 +43,11 @@ trait ExtraInteractions {
         text: impl Into<WidgetText>,
     ) -> Response;
 
-    // fn sort_button<Value: PartialEq + SelectionDepth> (
-    //     &mut self,
-    //     current_value: &mut Option<Value>,
-    //     selected_value: Value,
-    // ) -> Response;
+    fn sort_button<Value: PartialEq + SelectionDepth> (
+        &mut self,
+        current_value: &mut Option<Value>,
+        selected_value: Value,
+    ) -> Response;
 }
 
 impl ExtraInteractions for Ui {
@@ -68,10 +68,67 @@ impl ExtraInteractions for Ui {
         }
         response
     }
+
+    fn sort_button<Value: PartialEq + SelectionDepth> (
+        &mut self,
+        current_value: &mut Option<Value>,
+        selected_value: Value,
+    ) -> Response {
+        let selected = match current_value {
+            Some(value) => *value == selected_value,
+            None => false,
+        };
+        let mut response = self.selectable_label(selected, selected_value.icon());
+        if response.clicked() {
+            *current_value = if selected {
+                    current_value.inc()
+                } else {
+                    current_value.reset();
+                    selected_value.inc()
+                };
+            response.mark_changed();
+        }
+        response
+    }
 }
 
 fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
-    RecordBatch()
+    RecordBatch::concat(&batches[0].schema(), &batches).unwrap()
+}
+
+fn create_parquet_table(ui: &mut egui::Ui, data: ParquetData) {
+
+    TableBuilder::new(ui)
+        .striped(true)
+        // TODO: set sizes in font units
+        // TODO: set widths by type, max(type_width, total_space/columns)
+        // TODO: show 'drag file to load' before loaded
+        .columns(Size::initial(8.0*text_height).at_least(8.0*text_height), data.num_columns())
+        .resizable(true)
+        .header(text_height * 4.0, |mut header| {
+            for field in data.data.schema().fields() {
+                header.col(|ui| {
+                    // TODO: sort with arrow, use 3 position switch
+                    ui.button("\u{2195}");
+                    ui.label(format!("{}", field.name()));
+                });
+            }
+        })
+        .body(|body| {
+            body.rows(text_height, data.num_rows() as usize, |row_index, mut row| {
+                let _data = data.data.as_ref().unwrap();
+                for data_col in _data.columns() {
+                    row.col(|ui| {
+                        // while not efficient (as noted in docs) we need to display
+                        // at most a few dozen records at a time (barring pathological
+                        // tables with absurd numbers of columns) and should still
+                        // have conversion times on the order of ns.
+                        let value = array_value_to_string(data_col, row_index).unwrap();
+                        ui.label( value );
+                    });
+                }
+            });
+        })
 }
 
 pub struct DataFilters {
@@ -82,14 +139,14 @@ pub struct DataFilters {
 }
 
 impl Default for DataFilters {
-   fn default() -> Self {
-       Self {
-           sort: None,
-           table_name: "main".to_string(),
-           ascending: true,
-           query: None,
-       }
-   }
+    fn default() -> Self {
+        Self {
+            sort: None,
+            table_name: "main".to_string(),
+            ascending: true,
+            query: None,
+        }
+    }
 }
 
 
@@ -149,6 +206,15 @@ impl ParquetData {
     // }
 }
 
+async fn file_dialog() -> String {
+    let file = AsyncFileDialog::new()
+       .pick_file()
+       .await;
+
+    // TODO: handle wasm file object
+    file.unwrap().inner().to_str().to_string()
+}
+
 pub struct ParqBenchApp {
     pub menu_panel: Option<MenuPanels>,
 
@@ -197,12 +263,13 @@ impl ParqBenchApp {
         }
     }
 
-    pub fn run_future<F>(&mut self, future: F, ctx: &egui::Context) -> ()
+    // TODO: need to limit to data futures
+    pub fn run_data_future<F>(&mut self, future: F, ctx: &egui::Context) -> ()
     where F: Future + Send,
           F::Output: Send
     {
-        async fn inner<F>(future: F, ctx: &egui::Context) {
-            future.await;
+        async fn inner<F>(state: &mut ParqBenchApp, future: F, ctx: &egui::Context) {
+            state.data = future.await;
             ctx.request_repaint();
         }
 
@@ -210,15 +277,7 @@ impl ParqBenchApp {
             // FIXME, use vec of tasks?
             panic!("Cannot schedule future when future already running");
         }
-        self.task = Some(self.runtime.spawn(inner::<F>(future, ctx)));
-    }
-
-    pub fn format_value(&self, col: &str, row: usize) -> &str {
-        if let Some(da) = *self.data {
-            let col = da[col];
-            array_value_to_string(col, row).ok().as_str()
-        }
-        ""
+        self.task = Some(self.runtime.spawn(inner::<F>(self, future, ctx)));
     }
 }
 
@@ -233,7 +292,8 @@ impl eframe::App for ParqBenchApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 
         if !ctx.input().raw.dropped_files.is_empty() {
-            self.run_future( self.load_datasource( ctx.input().raw.dropped_files[0], ctx.request_repaint) );
+            let filename = ctx.input().raw.dropped_files[0];
+            self.run_data_future(ParquetData::load(filename), ctx);
         }
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -244,13 +304,8 @@ impl eframe::App for ParqBenchApp {
                     });
 
                     if ui.button("Open...").clicked() {
-                        let table = FileDialog::new()
-                                .set_location("~")
-                                .show_open_single_file()
-                                .unwrap();
-
-                        self.run_future( self.load_datasource(&table.unwrap().to_str().unwrap(), ctx.request_repaint) );
-
+                        let filename = tokio::runtime::Handle::current().block_on(file_dialog());
+                        self.run_data_future(ParquetData::load(filename.as_str()), ctx);
                         ui.close_menu();
                     }
 
@@ -295,6 +350,8 @@ impl eframe::App for ParqBenchApp {
                                     ui.label("Filter");
                                     // ui.text_edit_singleline();
                                     // TODO: input, update data, output for errors
+                                    // button
+                                    // self.data.query(self.filters)
                                 });
                             }
                         }
@@ -329,41 +386,13 @@ impl eframe::App for ParqBenchApp {
             }
 
             egui::ScrollArea::horizontal().show(ui, |ui| {
-                if let None = self.data {
-                    return;
+                if let Some(data) = *self.data {
+                    create_parquet_table(ui, data);
+                }
+                else {
+                    ui.label("Drag and drop file, or use load file dialog");
                 }
 
-                TableBuilder::new(ui)
-                    .striped(true)
-                    // TODO: set sizes in font units
-                    // TODO: set widths by type, max(type_width, total_space/columns)
-                    // TODO: show 'drag file to load' before loaded
-                    .columns(Size::initial(8.0*text_height).at_least(8.0*text_height), self.data.as_ref().unwrap().num_columns())
-                    .resizable(true)
-                    .header(text_height * 4.0, |mut header| {
-                        for field in self.data.as_ref().unwrap().schema().fields() {
-                            header.col(|ui| {
-                                // TODO: sort with arrow, use 3 position switch
-                                ui.button("\u{2195}");
-                                ui.label(format!("{}", field.name()));
-                            });
-                        }
-                    })
-                    .body(|body| {
-                        body.rows(text_height, metadata.as_ref().unwrap().file_metadata().num_rows() as usize, |row_index, mut row| {
-                            let _data = data.as_ref().unwrap();
-                            for data_col in _data.columns() {
-                                row.col(|ui| {
-                                    // while not efficient (as noted in docs) we need to display
-                                    // at most a few dozen records at a time (barring pathological
-                                    // tables with absurd numbers of columns) and should still
-                                    // have conversion times on the order of ns.
-                                    let value = array_value_to_string(data_col, row_index).unwrap();
-                                    ui.label( value );
-                                });
-                            }
-                        });
-                    });
             });
         });
     }
