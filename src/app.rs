@@ -17,17 +17,29 @@ use tokio::task::JoinHandle;
 #[derive(PartialEq)]
 enum MenuPanels { Schema, Info, Filter}
 
+struct SortButton {
+    name: String,
+    icon: String,
+    sort_ascending: bool
+}
+
+impl SelectionDepth for SortButton {
+
+}
+
+
 trait SelectionDepth {
+    // TODO: restore & muts
     fn inc(
-        &mut self
+        self
     ) -> Option<Self>;
 
     fn depth<Depth: PartialEq>(
-        &mut self
+        self
     ) -> Depth;
 
     fn reset(
-        &mut self
+        self
     ) -> Self;
 
     fn icon<Icon: Into<WidgetText>>(
@@ -167,6 +179,8 @@ impl ParquetData {
                 if let Some(data) = df.collect().await.ok() {
                     let data = concat_record_batches(data);
                     Some(self::ParquetData { filename: filename.to_string(), data: data, dataframe: df })
+                } else {
+                    None
                 }
             },
             None => {
@@ -217,6 +231,8 @@ async fn file_dialog() -> String {
 
 pub struct ParqBenchApp {
     pub menu_panel: Option<MenuPanels>,
+    pub data_header: Option<Vec<SortButton>>,
+
 
     // Execution context gives us metadata that we can't get from RecordBatch,
     // and lets us re-query with sql.
@@ -231,7 +247,9 @@ pub struct ParqBenchApp {
 impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
+            // ui elements
             menu_panel: None,
+            data_header: None,
             // table_name: "main".to_string(),
             data: None,
             filters: DataFilters::default(),
@@ -242,6 +260,7 @@ impl Default for ParqBenchApp {
 }
 
 impl ParqBenchApp {
+    // TODO: re-export load, query, and sort. Need to update ui elements on load (columns), as well as filters
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Default::default()
     }
@@ -265,8 +284,7 @@ impl ParqBenchApp {
 
     // TODO: need to limit to data futures
     pub fn run_data_future<F>(&mut self, future: F, ctx: &egui::Context) -> ()
-    where F: Future + Send,
-          F::Output: Send
+    where F: Future<Output=Option<ParquetData>> + Send,
     {
         async fn inner<F>(state: &mut ParqBenchApp, future: F, ctx: &egui::Context) {
             state.data = future.await;
@@ -287,7 +305,7 @@ impl eframe::App for ParqBenchApp {
     // TODO: fill in side panels
     // TODO: panel layout improvement
     // TODO: better file dialog
-    // TODO: notification of loading failures
+    // TODO: notification of loading failures, extend Option to have error, empty, and full states?
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 
@@ -348,7 +366,12 @@ impl eframe::App for ParqBenchApp {
                             MenuPanels::Filter => {
                                 egui::ScrollArea::vertical().show(ui, |ui| {
                                     ui.label("Filter");
-                                    // ui.text_edit_singleline();
+                                    ui.label("Not Yet Implemented");
+                                    ui.set_enabled(false);
+                                    ui.label("Table Name");
+                                    ui.text_edit_singleline(self.filters.table_name);
+                                    ui.label("SQL Query");
+                                    ui.text_edit_singleline(self.filters.query);
                                     // TODO: input, update data, output for errors
                                     // button
                                     // self.data.query(self.filters)
