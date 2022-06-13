@@ -12,8 +12,8 @@ egui = "0.18.0"
 egui_extras = "0.18.0"
 eframe = { version = "0.18.0", features = ["persistence"] }
 datafusion = "~8"
-rfd = "~0.8"
-tokio = "~1"
+rfd = { version ="~0.8", features = ["file-handle-inner"] }
+tokio = { version = "~1.19", features = ["rt"] }
 
 [features]
 default = []

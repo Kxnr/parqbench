@@ -3,15 +3,18 @@ use datafusion::arrow;
 use datafusion::arrow::util::display::{array_value_to_string};
 use egui::{Response, WidgetText, Ui};
 use egui_extras::{TableBuilder, Size};
-use std::future::{Future, Ready};
+use std::future::Future;
 use std::marker::Send;
 
-// TODO: replace with rfd
 use rfd::AsyncFileDialog;
 use std::sync::Arc;
 use datafusion::prelude::*;
 use arrow::record_batch::RecordBatch;
 use tokio::task::JoinHandle;
+
+
+// TODO: this ain't it
+static TEXT_HEIGHT: f32 = 8f32;
 
 
 #[derive(PartialEq)]
@@ -23,16 +26,15 @@ struct SortButton {
     sort_ascending: bool
 }
 
-impl SelectionDepth for SortButton {
-
-}
+// impl SelectionDepth for SortButton {
+//
+// }
 
 
 trait SelectionDepth {
-    // TODO: restore & muts
     fn inc(
         self
-    ) -> Option<Self>;
+    ) -> Option<Self> where Self: Sized;
 
     fn depth<Depth: PartialEq>(
         self
@@ -55,7 +57,7 @@ trait ExtraInteractions {
         text: impl Into<WidgetText>,
     ) -> Response;
 
-    fn sort_button<Value: PartialEq + SelectionDepth> (
+    fn sort_button<Value: PartialEq + SelectionDepth, Icon: Into<WidgetText>> (
         &mut self,
         current_value: &mut Option<Value>,
         selected_value: Value,
@@ -81,7 +83,7 @@ impl ExtraInteractions for Ui {
         response
     }
 
-    fn sort_button<Value: PartialEq + SelectionDepth> (
+    fn sort_button<Value: PartialEq + SelectionDepth, Icon: Into<WidgetText>> (
         &mut self,
         current_value: &mut Option<Value>,
         selected_value: Value,
@@ -90,12 +92,15 @@ impl ExtraInteractions for Ui {
             Some(value) => *value == selected_value,
             None => false,
         };
-        let mut response = self.selectable_label(selected, selected_value.icon());
+        let mut response = self.selectable_label(selected, selected_value.icon::<Icon>());
         if response.clicked() {
             *current_value = if selected {
-                    current_value.inc()
+                    selected_value.inc()
                 } else {
-                    current_value.reset();
+                    if let Some(value) = current_value {
+                        value.reset();
+
+                    }
                     selected_value.inc()
                 };
             response.mark_changed();
@@ -108,16 +113,14 @@ fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
     RecordBatch::concat(&batches[0].schema(), &batches).unwrap()
 }
 
-fn create_parquet_table(ui: &mut egui::Ui, data: ParquetData) {
-
+fn create_parquet_table(ui: &mut Ui, data: &ParquetData) {
     TableBuilder::new(ui)
         .striped(true)
         // TODO: set sizes in font units
         // TODO: set widths by type, max(type_width, total_space/columns)
-        // TODO: show 'drag file to load' before loaded
-        .columns(Size::initial(8.0*text_height).at_least(8.0*text_height), data.num_columns())
+        .columns(Size::initial(8.0* TEXT_HEIGHT).at_least(8.0* TEXT_HEIGHT), data.data.num_columns())
         .resizable(true)
-        .header(text_height * 4.0, |mut header| {
+        .header(TEXT_HEIGHT * 4.0, |mut header| {
             for field in data.data.schema().fields() {
                 header.col(|ui| {
                     // TODO: sort with arrow, use 3 position switch
@@ -127,9 +130,8 @@ fn create_parquet_table(ui: &mut egui::Ui, data: ParquetData) {
             }
         })
         .body(|body| {
-            body.rows(text_height, data.num_rows() as usize, |row_index, mut row| {
-                let _data = data.data.as_ref().unwrap();
-                for data_col in _data.columns() {
+            body.rows(TEXT_HEIGHT, data.data.num_rows() as usize, |row_index, mut row| {
+                for data_col in data.data.columns() {
                     row.col(|ui| {
                         // while not efficient (as noted in docs) we need to display
                         // at most a few dozen records at a time (barring pathological
@@ -171,15 +173,16 @@ pub struct ParquetData {
 
 impl ParquetData {
     pub async fn query(filename: &str, filters: &DataFilters) -> Option<Self> {
-        let mut ctx = SessionContext::new();
+        let ctx = SessionContext::new();
         ctx.register_parquet(filters.table_name.as_str(), filename, ParquetReadOptions::default()).await.ok();
-        // FIXME
-        match ctx.sql(filters.query.unwrap().as_str()).await.ok() {
+        // FIXME: may be missing query
+        match ctx.sql(filters.query.as_ref().unwrap().as_str()).await.ok() {
             Some(df) => {
                 if let Some(data) = df.collect().await.ok() {
                     let data = concat_record_batches(data);
-                    Some(self::ParquetData { filename: filename.to_string(), data: data, dataframe: df })
+                    Some(ParquetData { filename: filename.to_string(), data: data, dataframe: df })
                 } else {
+                    // FIXME: syntax errors wipe data
                     None
                 }
             },
@@ -189,11 +192,14 @@ impl ParquetData {
         }
     }
 
-    pub async fn sort(self, &filters: DataFilters) -> Self {
-        let df = self.df.sort(vec![col(filters.sort_col).sort(filters.ascending, false)]);
-        match df {
+    pub async fn sort(self, filters: &DataFilters) -> Self {
+        // FIXME: unsafe unwrap
+        let df = self.dataframe.sort(vec![col(filters.sort.as_ref().unwrap().as_str()).sort(filters.ascending, false)]);
+
+        // FIXME: panic on bad query
+        match df.ok() {
             Some(df) => {
-                self::ParquetData { filename: self.filename, data: self.data, dataframe: df }
+                ParquetData { filename: self.filename, data: self.data, dataframe: df }
             },
             None => {
                 self
@@ -202,12 +208,12 @@ impl ParquetData {
     }
 
     pub async fn load(filename: &str) -> Option<Self> {
-        let mut ctx = SessionContext::new();
+        let ctx = SessionContext::new();
         match ctx.read_parquet(filename, ParquetReadOptions::default()).await.ok() {
             Some(df) => {
                 let data = df.collect().await.unwrap();
                 let data = concat_record_batches(data);
-                Some(self::ParquetData { filename: filename.to_string(), data: data, dataframe: df })
+                Some(ParquetData { filename: filename.to_string(), data: data, dataframe: df })
             },
             None => {
                 None
@@ -226,7 +232,8 @@ async fn file_dialog() -> String {
        .await;
 
     // TODO: handle wasm file object
-    file.unwrap().inner().to_str().to_string()
+    // FIXME: unsafe unwraps
+    file.unwrap().inner().to_str().unwrap().to_string()
 }
 
 pub struct ParqBenchApp {
@@ -241,7 +248,7 @@ pub struct ParqBenchApp {
 
     // accessed only by methods
     runtime: tokio::runtime::Runtime,
-    task: Option<JoinHandle<_>>,
+    task: Option<JoinHandle<()>>,
 }
 
 impl Default for ParqBenchApp {
@@ -252,7 +259,8 @@ impl Default for ParqBenchApp {
             data_header: None,
             // table_name: "main".to_string(),
             data: None,
-            filters: DataFilters::default(),
+            filters:
+            DataFilters::default(),
             runtime: tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap(),
             task: None,
         }
@@ -269,11 +277,14 @@ impl ParqBenchApp {
         self.filters = DataFilters::default();
     }
 
-    pub fn future_pending(&self) -> bool {
+    pub fn data_pending(&mut self) -> bool {
         // hide implementation details of waiting for data to load
-        if let Some(task) = *self.task {
-            if task.poll().is_ready() {
-                *self.task = None;
+        if let Some(task) = &self.task {
+            if task.is_finished() {
+                self.task = None;
+                true
+            }
+            else {
                 false
             }
         }
@@ -286,7 +297,9 @@ impl ParqBenchApp {
     pub fn run_data_future<F>(&mut self, future: F, ctx: &egui::Context) -> ()
     where F: Future<Output=Option<ParquetData>> + Send,
     {
-        async fn inner<F>(state: &mut ParqBenchApp, future: F, ctx: &egui::Context) {
+        async fn inner<F>(state: &mut ParqBenchApp, future: F, ctx: &egui::Context)
+        where F: Future<Output=Option<ParquetData>> + Send
+        {
             state.data = future.await;
             ctx.request_repaint();
         }
@@ -300,17 +313,19 @@ impl ParqBenchApp {
 }
 
 impl eframe::App for ParqBenchApp {
-    // TODO: move data loading to separate thread and add wait spinner
     // TODO: load partitioned dataset
     // TODO: fill in side panels
     // TODO: panel layout improvement
-    // TODO: better file dialog
+    // TODO: better file dialog (flow for querying data before load)
     // TODO: notification of loading failures, extend Option to have error, empty, and full states?
+    // TODO: show 'drag file to load' before loaded
+    // TODO: parse pandas format metadata
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 
         if !ctx.input().raw.dropped_files.is_empty() {
-            let filename = ctx.input().raw.dropped_files[0];
+            // TODO: there must be a more idiomatic way to do this
+            let filename = ctx.input().raw.dropped_files[0].name.as_str();
             self.run_data_future(ParquetData::load(filename), ctx);
         }
 
@@ -322,6 +337,7 @@ impl eframe::App for ParqBenchApp {
                     });
 
                     if ui.button("Open...").clicked() {
+                        // TODO: move fully into state struct
                         let filename = tokio::runtime::Handle::current().block_on(file_dialog());
                         self.run_data_future(ParquetData::load(filename.as_str()), ctx);
                         ui.close_menu();
@@ -340,12 +356,12 @@ impl eframe::App for ParqBenchApp {
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     // TODO: tooltips
-                    let _ = ui.toggleable_value(*self.menu_panel, MenuPanels::Schema, "\u{FF5B}");
-                    let _ = ui.toggleable_value(*self.menu_panel, MenuPanels::Info, "\u{2139}");
-                    let _ = ui.toggleable_value(*self.menu_panel, MenuPanels::Filter, "\u{1F50E}");
+                    let _ = ui.toggleable_value(&mut self.menu_panel, MenuPanels::Schema, "\u{FF5B}");
+                    let _ = ui.toggleable_value(&mut self.menu_panel, MenuPanels::Info, "\u{2139}");
+                    let _ = ui.toggleable_value(&mut self.menu_panel, MenuPanels::Filter, "\u{1F50E}");
                 });
 
-                match *self.menu_panel {
+                match &self.menu_panel {
                     // TODO: looks like CollapsingState can accomplish this nicely
                     Some(panel) => {
                         match panel {
@@ -369,9 +385,9 @@ impl eframe::App for ParqBenchApp {
                                     ui.label("Not Yet Implemented");
                                     ui.set_enabled(false);
                                     ui.label("Table Name");
-                                    ui.text_edit_singleline(self.filters.table_name);
+                                    ui.text_edit_singleline(&mut self.filters.table_name);
                                     ui.label("SQL Query");
-                                    ui.text_edit_singleline(self.filters.query);
+                                    // ui.text_edit_singleline(&mut self.filters.query);
                                     // TODO: input, update data, output for errors
                                     // button
                                     // self.data.query(self.filters)
@@ -387,10 +403,10 @@ impl eframe::App for ParqBenchApp {
 
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                // match self.datasource {
-                //     Some(table) => { ui.label(&format!("{:#?}", table)); },
-                //     None => { ui.label("no file set"); },
-                // }
+                match &self.data {
+                    Some(table) => { ui.label(&format!("{:#?}", table.filename)); },
+                    None => { ui.label("no file set"); },
+                }
                 egui::warn_if_debug_build(ui);
             });
         });
@@ -399,7 +415,7 @@ impl eframe::App for ParqBenchApp {
         // TODO: table
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
-            let text_height = egui::TextStyle::Body.resolve(ui.style()).size;
+            // let TEXT_HEIGHT = egui::TextStyle::Body.resolve(ui.style()).size;
 
             if self.data_pending() {
                 // TODO: prevent/handle simultaneous data loads
@@ -409,7 +425,7 @@ impl eframe::App for ParqBenchApp {
             }
 
             egui::ScrollArea::horizontal().show(ui, |ui| {
-                if let Some(data) = *self.data {
+                if let Some(data) = &self.data {
                     create_parquet_table(ui, data);
                 }
                 else {
