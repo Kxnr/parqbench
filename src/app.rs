@@ -24,7 +24,8 @@ pub enum MenuPanels { Schema, Info, Filter}
 pub struct ColumnLabel {
     pub column: String,
     icon: String,
-    sort_ascending: bool
+    sort_ascending: bool,
+    active: bool,
 }
 
 impl Default for ColumnLabel {
@@ -33,20 +34,22 @@ impl Default for ColumnLabel {
             column: "".to_string(),
             icon: "\u{2195}".to_string(),
             sort_ascending: false,
+            active: false,
         }
     }
 }
 
 impl SelectionDepth<String> for ColumnLabel {
     fn inc(&mut self) -> () {
+        self.active = true;
         self.sort_ascending = !self.sort_ascending;
         self.icon = if self.sort_ascending {"^".to_string()} else {"v".to_string()};
     }
 
     fn reset(&mut self) -> () {
-        // TODO: there's likely a more idiomatic way to do this--derive builder?
         self.icon = Default::default();
         self.sort_ascending = Default::default();
+        self.active = Default::default();
     }
 
     fn icon(&self) -> String {
@@ -55,7 +58,6 @@ impl SelectionDepth<String> for ColumnLabel {
 }
 
 
-// FIXME: made changes to derived
 trait SelectionDepth<Icon> {
     fn inc(
         &mut self
@@ -144,11 +146,7 @@ impl ParquetTable {
         todo!()
     }
 
-    fn create_parquet_table(&mut self) -> Self {
-        todo!()
-    }
-
-    fn render_parquet_table(&self, ui: &mut Ui) {
+    fn render(&self, ui: &mut Ui) {
         TableBuilder::new(ui)
             .striped(true)
             // TODO: set sizes in font units
@@ -159,7 +157,7 @@ impl ParquetTable {
                 for field in self.data.data.schema().fields() {
                     header.col(|ui| {
                         // TODO: sort with arrow, use 3 position switch
-                        let response = ui.sort_button(format!("{}\t\u{2195}", field.name()));
+                        let response = ui.sort_button::<ColumnLabel, String>(format!("{}\t\u{2195}", field.name()));
                         if response.clicked {
                             // update filters
                         };
@@ -181,26 +179,22 @@ impl ParquetTable {
                 });
             })
     }
-
 }
 
 
 
 pub struct DataFilters {
-    sort: Option<String>,
+    labels: Vec<ColumnLabel>,
     table_name: String,
-    ascending: bool,
     query: Option<String>,
 }
 
 
-// TODO: serialize this for the query pane
 impl Default for DataFilters {
     fn default() -> Self {
         Self {
-            sort: None,
+            labels: Vec::new(),
             table_name: "main".to_string(),
-            ascending: true,
             query: None,
         }
     }
@@ -209,7 +203,6 @@ impl Default for DataFilters {
 
 pub struct ParquetData {
     pub filename: String,
-    // pub metadata: ??,
     pub data: RecordBatch,
     dataframe: Arc<DataFrame>
 }
@@ -237,6 +230,10 @@ impl ParquetData {
 
     pub async fn sort(self, filters: &DataFilters) -> Self {
         // FIXME: unsafe unwrap
+        // TODO: create sort expression from labels
+
+        let sort_expression = filters.labels.map(|x| x.)
+
         let df = self.dataframe.sort(vec![col(filters.sort.as_ref().unwrap().as_str()).sort(filters.ascending, false)]);
 
         // FIXME: panic on bad query
