@@ -10,21 +10,27 @@ use rfd::AsyncFileDialog;
 use std::sync::Arc;
 use datafusion::prelude::*;
 use arrow::record_batch::RecordBatch;
+// use datafusion::prelude::Expr::Column;
+// use egui::CursorIcon::Default;
 use tokio::sync::oneshot::error::TryRecvError;
-use tracing_subscriber::registry::Data;
+use core::default::Default;
 
 
 // TODO: this ain't it
 static TEXT_HEIGHT: f32 = 12f32;
 
+// TODO: t r i b o o l
+
+
 
 #[derive(PartialEq)]
 pub enum MenuPanels { Schema, Info, Filter}
 
+#[derive(PartialEq)]
 pub struct ColumnLabel {
     pub column: String,
     icon: String,
-    sort_ascending: bool
+    sort_state: tribool
 }
 
 impl Default for ColumnLabel {
@@ -32,38 +38,36 @@ impl Default for ColumnLabel {
         Self {
             column: "".to_string(),
             icon: "\u{2195}".to_string(),
-            sort_ascending: false,
+            sort_state: 0,
         }
     }
 }
 
 impl SelectionDepth<String> for ColumnLabel {
-    fn inc(&mut self) -> () {
-        self.sort_ascending = !self.sort_ascending;
-        self.icon = if self.sort_ascending {"^".to_string()} else {"v".to_string()};
+    fn inc(&self) -> Self {
+        let icon = if self.sort_state {"^".to_string()} else {"v".to_string()};
+        ColumnLabel {sort_state: !self.sort_state, icon: icon, column: self.column.clone()}
     }
 
-    fn reset(&mut self) -> () {
-        // TODO: there's likely a more idiomatic way to do this--derive builder?
-        self.icon = Default::default();
-        self.sort_ascending = Default::default();
+    fn reset(&self) -> Self {
+        ColumnLabel {..Default::default()}
     }
 
     fn icon(&self) -> String {
+        // TODO: all icon handling should be here
         format!("{}\t{}", self.column, self.icon)
     }
 }
 
 
-// FIXME: made changes to derived
 trait SelectionDepth<Icon> {
     fn inc(
-        &mut self
-    ) -> ();
+        &self
+    ) -> Self;
 
     fn reset(
-        &mut self
-    ) -> ();
+        &self
+    ) -> Self;
 
     fn icon(
         &self
@@ -136,7 +140,6 @@ fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
 struct ParquetTable {
     pub data: ParquetData,
     pub filters: DataFilters,
-    labels: Vec<ColumnLabel>
 }
 
 impl ParquetTable {
@@ -149,6 +152,12 @@ impl ParquetTable {
     }
 
     fn render_parquet_table(&self, ui: &mut Ui) {
+        // TODO: manage sort_state through function?
+        let mut sorted_column = match &self.filters.sort {
+            Some(sort) => Some(ColumnLabel { column: self.filters.sort.unwrap(), sort_state: self.filters.ascending, ..Default::default()}),
+            None => None
+        };
+
         TableBuilder::new(ui)
             .striped(true)
             // TODO: set sizes in font units
@@ -158,10 +167,12 @@ impl ParquetTable {
             .header(TEXT_HEIGHT * 1.5, |mut header| {
                 for field in self.data.data.schema().fields() {
                     header.col(|ui| {
-                        // TODO: sort with arrow, use 3 position switch
-                        let response = ui.sort_button(format!("{}\t\u{2195}", field.name()));
-                        if response.clicked {
+                        let column_label = ColumnLabel {column: field.name().to_owned(), sort_state: self.filters.ascending, icon: Default::default()};
+                        let response = ui.sort_button( &mut sorted_column, column_label);
+                        if response.clicked() {
                             // update filters
+                            // TODO
+                            println!("clicked label {}", field.name());
                         };
                     });
                 }
@@ -193,6 +204,7 @@ pub struct DataFilters {
     query: Option<String>,
 }
 
+// TODO: add trait `Pane` for informational panes
 
 // TODO: serialize this for the query pane
 impl Default for DataFilters {
@@ -310,7 +322,7 @@ impl ParqBenchApp {
             Some(output) => {
                 match output.try_recv() {
                     Ok(data) => {
-                        self.data = data;
+                        self.table = Some(ParquetTable {data: data, filters: DataFilters::default() });
                         self.pipe = None;
                         false
                     },
@@ -463,18 +475,16 @@ impl eframe::App for ParqBenchApp {
             if self.data_pending() {
                 ui.spinner();
                 ui.set_enabled(false);
-            }
+            };
 
             egui::ScrollArea::horizontal().show(ui, |ui| {
-                if let Some(datatable = &self.table {
-                    table.render_table(ui)
+                if let Some(datatable) = &self.table {
+                    datatable.render_parquet_table(ui);
                 }
                 else {
                     ui.label("Drag and drop file, or use load file dialog");
                 }
-
             });
         });
-
     }
 }
