@@ -22,6 +22,7 @@ impl Default for DataFilters {
     }
 }
 
+#[derive(Clone)]
 pub struct ParquetData {
     pub filename: String,
     pub data: RecordBatch,
@@ -100,7 +101,10 @@ impl ParquetData {
                 };
                 match self.dataframe.sort(vec![col(_col).sort(ascending, false)]) {
                     Ok(df) => {
-                        Ok(ParquetData { filename: self.filename, data: self.data, dataframe: df, filters: filters})
+                        match df.collect().await {
+                            Ok(data) => Ok(ParquetData { filename: self.filename, data: concat_record_batches(data), dataframe: df, filters: filters}),
+                            Err(_) => Err("Error sorting data".to_string())
+                        }
                     }
                     Err(_) => Err("Could not sort data with given filters".to_string())
                 }
