@@ -8,8 +8,9 @@ use std::marker::Send;
 use rfd::AsyncFileDialog;
 use tokio::sync::oneshot::error::TryRecvError;
 use core::default::Default;
+use std::thread::current;
 
-use parqbench::data::{DataFilters, ParquetData};
+use crate::data::{DataFilters, ParquetData, SortState};
 
 // TODO: create a layout struct with various sizes
 static TEXT_HEIGHT: f32 = 12f32;
@@ -18,13 +19,6 @@ struct Layout {
     text_height: f32,
     tab_width: f32,
     column_width: f32
-}
-
-#[derive(PartialEq)]
-pub enum SortState {
-    NotSorted(String),
-    Ascending(String),
-    Descending(String)
 }
 
 impl SelectionDepth<String> for SortState {
@@ -53,7 +47,6 @@ impl SelectionDepth<String> for SortState {
         }.to_string()
     }
 }
-
 
 trait SelectionDepth<Icon> {
     fn inc(
@@ -85,7 +78,7 @@ trait ExtraInteractions {
 }
 
 impl ExtraInteractions for Ui {
-    // fn toggleable_value<Value: PartialEq>(
+    // fn toggleable_valume<Value: PartialEq>(
     //     &mut self,
     //     current_value: &mut Option<Value>,
     //     selected_value: Value,
@@ -115,7 +108,7 @@ impl ExtraInteractions for Ui {
         let mut response = self.selectable_label(selected, selected_value.format());
         if response.clicked() {
             if selected {
-                current_value.unwrap().inc();
+                *current_value = Some(selected_value.inc());
             } else {
                 if let Some(value) = current_value {
                     value.reset();
@@ -128,28 +121,35 @@ impl ExtraInteractions for Ui {
     }
 }
 
-impl ParquetTable {
-    fn update_data(&mut self, filters: DataFilters) -> Self {
-        todo!()
-    }
+impl ParquetData {
+    fn render(&self, ui: &mut Ui) {
+        fn is_sorted_column(sorted_col: &Option<SortState>, col: String) -> bool {
+            match sorted_col {
+                Some(sort) => {
+                    match sort {
+                        SortState::Ascending(sorted_col) => sorted_col.to_owned() == col,
+                        SortState::Descending(sorted_col) => sorted_col.to_owned() == col,
+                        _ => false
+                    }
+                },
+                None => false
+            }
+        }
 
-    fn render_parquet_table(&self, ui: &mut Ui) {
+        let mut sorted_column = self.filters.sort.clone();
+
         // TODO: manage sort_state through function?
-        let mut sorted_column = match &self.filters.sort {
-            Some(sort) => Some(ColumnLabel { column: self.filters.sort.unwrap(), sort_state: self.filters.ascending, ..Default::default()}),
-            None => None
-        };
-
         TableBuilder::new(ui)
             .striped(true)
             // TODO: set sizes in font units
             // TODO: set widths by type, max(type_width, total_space/columns)
-            .columns(Size::initial(8.0* TEXT_HEIGHT).at_least(8.0* TEXT_HEIGHT), self.data.data.num_columns())
+            .columns(Size::initial(8.0* TEXT_HEIGHT).at_least(8.0 * TEXT_HEIGHT), self.data.num_columns())
             .resizable(true)
             .header(TEXT_HEIGHT * 1.5, |mut header| {
-                for field in self.data.data.schema().fields() {
+                for field in self.data.schema().fields() {
                     header.col(|ui| {
-                        let column_label = ColumnLabel {column: field.name().to_owned(), sort_state: self.filters.ascending, icon: Default::default()};
+                        // {column: field.name().to_owned(), sort_state: self.filters.ascending, icon: Default::default()};
+                        let column_label = if is_sorted_column(&sorted_column, field.name().to_string()) { sorted_column.clone().unwrap() } else { SortState::NotSorted(field.name().to_string()) };
                         let response = ui.sort_button( &mut sorted_column, column_label);
                         if response.clicked() {
                             // update filters
@@ -160,8 +160,8 @@ impl ParquetTable {
                 }
             })
             .body(|body| {
-                body.rows(TEXT_HEIGHT, self.data.data.num_rows() as usize, |row_index, mut row| {
-                    for data_col in self.data.data.columns() {
+                body.rows(TEXT_HEIGHT, self.data.num_rows() as usize, |row_index, mut row| {
+                    for data_col in self.data.columns() {
                         row.col(|ui| {
                             // while not efficient (as noted in docs) we need to display
                             // at most a few dozen records at a time (barring pathological
@@ -174,7 +174,6 @@ impl ParquetTable {
                 });
             })
     }
-
 }
 
 async fn file_dialog() -> String {
@@ -191,16 +190,16 @@ pub struct ParqBenchApp {
 
     // accessed only by methods
     runtime: tokio::runtime::Runtime,
-    pipe: Option<tokio::sync::oneshot::Receiver<Option<ParquetData>>>,
+    pipe: Option<tokio::sync::oneshot::Receiver<Result<ParquetData, String>>>,
 }
 
 impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
             // ui elements
-            table: None,
+            // table: None,
 
-            // table_name: "main".to_string(),
+            table: None,
             runtime: tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap(),
             pipe: None,
         }
@@ -218,10 +217,19 @@ impl ParqBenchApp {
         return match &mut self.pipe {
             Some(output) => {
                 match output.try_recv() {
-                    Ok(data) => {
-                        self.table = Some(ParquetTable {data: data.unwrap(), filters: DataFilters::default() });
-                        self.pipe = None;
-                        false
+                    Ok(data) => match data {
+                        Ok(data) => {
+                            self.table = Some(data);
+                            self.pipe = None;
+                            false
+                        },
+                        _ => {
+                            // FIXME
+                            println!("data loading didn't work");
+                            self.pipe = None;
+                            false
+                        }
+
                     },
                     // TODO: match empty and closed
                     Err(e) => match e {
@@ -240,23 +248,23 @@ impl ParqBenchApp {
         }
     }
 
-
     // TODO: need to limit to data futures
     pub fn run_data_future<F>(&mut self, future: F, ctx: &egui::Context) -> ()
-    where F: Future<Output=Option<ParquetData>> + Send + 'static,
+    where F: Future<Output=Result<ParquetData, String>> + Send + 'static,
     {
         if self.data_pending() {
             // FIXME, use vec of tasks?
             panic!("Cannot schedule future when future already running");
         }
-        let (tx, rx) = tokio::sync::oneshot::channel::<Option<ParquetData>>();
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<ParquetData, String>>();
         self.pipe = Some(rx);
 
         async fn inner<F>(future: F, ctx: egui::Context, tx: tokio::sync::oneshot::Sender<F::Output>)
-        where F: Future<Output=Option<ParquetData>> + Send
+        where F: Future<Output=Result<ParquetData, String>> + Send
         {
             let data = future.await;
             let result = tx.send(data);
+            println!("data loaded, requesting repaint");
             ctx.request_repaint();
         }
 
@@ -281,6 +289,7 @@ impl eframe::App for ParqBenchApp {
         //////////
         // Frame setup. Check if various interactions are in progress and resolve them
         //////////
+        ctx.set_visuals(egui::style::Visuals::dark());
 
         if !ctx.input().raw.dropped_files.is_empty() {
             // FIXME: unsafe unwraps
@@ -347,10 +356,10 @@ impl eframe::App for ParqBenchApp {
 
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                match &self.table {
-                    Some(table) => { ui.label(&format!("{:#?}", table.data.filename)); },
-                    None => { ui.label("no file set"); },
-                }
+                // match &self.table {
+                //     Some(table) => { ui.label(&format!("{:#?}", table.data.filename)); },
+                //     None => { ui.label("no file set"); },
+                // }
                 egui::warn_if_debug_build(ui);
             });
         });
@@ -367,7 +376,7 @@ impl eframe::App for ParqBenchApp {
 
             egui::ScrollArea::horizontal().show(ui, |ui| {
                 if let Some(datatable) = &self.table {
-                    datatable.render_parquet_table(ui);
+                    datatable.render(ui);
                 }
                 else {
                     ui.label("Drag and drop file, or use load file dialog");

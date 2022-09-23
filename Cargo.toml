@@ -12,16 +12,10 @@ eframe = { version = "~0.18", features = ["persistence"] }
 datafusion = "~8"
 rfd = { version ="~0.8", features = ["file-handle-inner"] }
 tokio = { version = "~1.19", features = ["rt", "sync"] }
+tracing-subscriber = "0.3"
 
 [features]
 default = []
 
 [profile.release]
-opt-level = 2 # fast and small wasm
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tracing-subscriber = "0.3"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "0.1.6"
-tracing-wasm = "0.2"
+opt-level = 2

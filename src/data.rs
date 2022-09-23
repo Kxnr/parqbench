@@ -4,15 +4,11 @@ use datafusion::dataframe::DataFrame;
 use datafusion::prelude::{concat, ParquetReadOptions, SessionContext};
 use datafusion::logical_expr::col;
 
-pub struct SortDescriptor {
-    column: String,
-    ascending: bool
-}
-
+#[derive(Clone)]
 pub struct DataFilters {
-    sort: Option<SortDescriptor>,
-    table_name: String,
-    query: Option<String>,
+    pub sort: Option<SortState>,
+    pub table_name: String,
+    pub query: Option<String>,
 }
 
 // TODO: serialize this for the query pane
@@ -29,8 +25,18 @@ impl Default for DataFilters {
 pub struct ParquetData {
     pub filename: String,
     pub data: RecordBatch,
+    pub filters: DataFilters,
     dataframe: Arc<DataFrame>
 }
+
+#[derive(PartialEq)]
+#[derive(Clone)]
+pub enum SortState {
+    NotSorted(String),
+    Ascending(String),
+    Descending(String)
+}
+
 
 
 fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
@@ -39,68 +45,69 @@ fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
 
 
 impl ParquetData {
-    pub async fn load(filename: &str) -> Result<Self> {
+    pub async fn load(filename: String) -> Result<Self, String> {
         let ctx = SessionContext::new();
-        match ctx.read_parquet(filename, ParquetReadOptions::default()).await {
+        match ctx.read_parquet(&filename, ParquetReadOptions::default()).await {
             Ok(df) => {
                 let data = df.collect().await.unwrap();
                 let data = concat_record_batches(data);
-                Ok(ParquetData { filename: filename.to_string(), data: data, dataframe: df })
+                Ok(ParquetData { filename: filename, data: data, dataframe: df, filters: DataFilters::default()})
             },
             Err(_) => {
-                Err(todo!)
+                Err("Could not load file.".to_string())
             }
         }
     }
 
-    pub async fn load_with_query(filename: &str, filters: &DataFilters) -> Result<Self> {
+    pub async fn load_with_query(filename: &str, filters: DataFilters) -> Result<Self, String> {
         let ctx = SessionContext::new();
         ctx.register_parquet(filters.table_name.as_str(),
                              filename,
                              ParquetReadOptions::default()).await.ok();
 
         match filters.query.as_ref() {
+            // TODO: better to hang onto context rather than df, to sidestep re-loading?
+            // TODO: as is, easier to load subset
             Some(query) => match ctx.sql(query.as_str()).await {
-                Ok(data) => {
-                    todo!("dataframe");
-                    let data = concat_record_batches(data);
-                    Ok(ParquetData {filename: filename.to_owned(), data: data, df: df})
+                Ok(df) => {
+                    match df.collect().await {
+                        Ok(data) => {
+                            let data = concat_record_batches(data);
+                            let data = ParquetData {filename: filename.to_owned(), data: data, dataframe: df, filters: filters.clone()};
+                            data.sort(None).await
+                        },
+                        Err(err) => Err("Could not query file".to_string())
+                    }
                 },
-                Err(err) => Err(err)   // two classes of error, sql and file
+                Err(err) => Err("Could not query file".to_string())   // two classes of error, sql and file
             },
-            None => Err(!todo("define error types"))
+            None => Err("No query provided".to_string())
         }
-        // TODO: if sort is not none, attempt to sort here
-
-        // match ctx.sql(filters.query.as_ref().unwrap().as_str()).await.ok() {
-        //     Some(df) => {
-        //         if let Some(data) = df.collect().await.ok() {
-        //             let data = concat_record_batches(data);
-        //             Some(ParquetData { filename: filename.to_string(), data: data, dataframe: df })
-        //         } else {
-        //             // FIXME: syntax errors wipe data
-        //             None
-        //         }
-        //     },
-        //     None => {
-        //         None
-        //     }
-        // }
     }
 
-    pub async fn sort(self, filters: &DataFilters) -> Self {
-        // FIXME: unsafe unwrap
-        let df = self.dataframe.sort(vec![col(filters.sort.as_ref().unwrap().as_str()).sort(filters.ascending, false)]);
+    pub async fn sort(self, filters: Option<DataFilters>) -> Result<Self, String> {
+        let filters = match filters {
+            Some(filters) => filters,
+            None => self.filters.clone()
+        };
 
-        // FIXME: panic on bad query
-        match df.ok() {
-            Some(df) => {
-                ParquetData { filename: self.filename, data: self.data, dataframe: df }
+        match filters.sort.as_ref() {
+            Some(sort) => {
+                let (_col, ascending) = match sort {
+                    SortState::Ascending(col) => {(col, true)},
+                    SortState::Descending(col) => {(col, false)},
+                    _ => panic!()
+                };
+                match self.dataframe.sort(vec![col(_col).sort(ascending, false)]) {
+                    Ok(df) => {
+                        Ok(ParquetData { filename: self.filename, data: self.data, dataframe: df, filters: filters})
+                    }
+                    Err(_) => Err("Could not sort data with given filters".to_string())
+                }
             },
             None => {
-                self
+                Ok(ParquetData { filename: self.filename, data: self.data, dataframe: self.dataframe, filters: filters})
             }
         }
     }
-
 }
