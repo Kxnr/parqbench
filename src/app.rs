@@ -1,61 +1,56 @@
 use eframe;
-use datafusion::arrow;
-use datafusion::arrow::util::display::{array_value_to_string};
-use egui::{Response, WidgetText, Ui};
-use egui_extras::{TableBuilder, Size};
+use datafusion::arrow::util::display::array_value_to_string;
+use egui::{Response, Ui, WidgetText};
+use egui_extras::{Size, TableBuilder};
 use std::future::Future;
 use std::marker::Send;
 
 use rfd::AsyncFileDialog;
-use std::sync::Arc;
-use datafusion::prelude::*;
-use arrow::record_batch::RecordBatch;
-// use datafusion::prelude::Expr::Column;
-// use egui::CursorIcon::Default;
 use tokio::sync::oneshot::error::TryRecvError;
 use core::default::Default;
 
+use parqbench::data::{DataFilters, ParquetData};
 
-// TODO: this ain't it
+// TODO: create a layout struct with various sizes
 static TEXT_HEIGHT: f32 = 12f32;
 
-// TODO: t r i b o o l
-
-
-
-#[derive(PartialEq)]
-pub enum MenuPanels { Schema, Info, Filter}
-
-#[derive(PartialEq)]
-pub struct ColumnLabel {
-    pub column: String,
-    icon: String,
-    sort_state: tribool
+struct Layout {
+    text_height: f32,
+    tab_width: f32,
+    column_width: f32
 }
 
-impl Default for ColumnLabel {
-    fn default() -> Self {
-        Self {
-            column: "".to_string(),
-            icon: "\u{2195}".to_string(),
-            sort_state: 0,
-        }
-    }
+#[derive(PartialEq)]
+pub enum SortState {
+    NotSorted(String),
+    Ascending(String),
+    Descending(String)
 }
 
-impl SelectionDepth<String> for ColumnLabel {
+impl SelectionDepth<String> for SortState {
     fn inc(&self) -> Self {
-        let icon = if self.sort_state {"^".to_string()} else {"v".to_string()};
-        ColumnLabel {sort_state: !self.sort_state, icon: icon, column: self.column.clone()}
+        match self {
+            SortState::NotSorted(col) => SortState::Ascending(col.to_owned()),
+            SortState::Ascending(col) => SortState::Descending(col.to_owned()),
+            SortState::Descending(col) => SortState::NotSorted(col.to_owned())
+        }
     }
 
     fn reset(&self) -> Self {
-        ColumnLabel {..Default::default()}
+        // one day, I'll be proficient enough with macros that they'll be worth the time...
+        match self {
+            SortState::NotSorted(col) => SortState::NotSorted(col.to_owned()),
+            SortState::Ascending(col) => SortState::NotSorted(col.to_owned()),
+            SortState::Descending(col) => SortState::NotSorted(col.to_owned())
+        }
     }
 
-    fn icon(&self) -> String {
-        // TODO: all icon handling should be here
-        format!("{}\t{}", self.column, self.icon)
+    fn format(&self) -> String {
+        match self {
+            SortState::Descending(col) => format!("v {}", col),
+            SortState::Ascending(col) => format!("^ {}", col),
+            SortState::NotSorted(col) => format!("\u{2195} {}", col),
+        }.to_string()
     }
 }
 
@@ -69,18 +64,18 @@ trait SelectionDepth<Icon> {
         &self
     ) -> Self;
 
-    fn icon(
+    fn format(
         &self
     ) -> Icon where Icon: Into<WidgetText>;
 }
 
 trait ExtraInteractions {
-    fn toggleable_value<Value: PartialEq>(
-        &mut self,
-        current_value: &mut Option<Value>,
-        selected_value: Value,
-        text: impl Into<WidgetText>,
-    ) -> Response;
+    // fn toggleable_value<Value: PartialEq>(
+    //     &mut self,
+    //     current_value: &mut Option<Value>,
+    //     selected_value: Value,
+    //     text: impl Into<WidgetText>,
+    // ) -> Response;
 
     fn sort_button<Value: PartialEq + SelectionDepth<Icon>, Icon: Into<WidgetText>> (
         &mut self,
@@ -90,23 +85,23 @@ trait ExtraInteractions {
 }
 
 impl ExtraInteractions for Ui {
-    fn toggleable_value<Value: PartialEq>(
-        &mut self,
-        current_value: &mut Option<Value>,
-        selected_value: Value,
-        text: impl Into<WidgetText>,
-    ) -> Response {
-        let selected = match current_value {
-            Some(value) => *value == selected_value,
-            None => false,
-        };
-        let mut response = self.selectable_label(selected, text);
-        if response.clicked() {
-            *current_value = if selected {None} else {Some(selected_value)};
-            response.mark_changed();
-        }
-        response
-    }
+    // fn toggleable_value<Value: PartialEq>(
+    //     &mut self,
+    //     current_value: &mut Option<Value>,
+    //     selected_value: Value,
+    //     text: impl Into<WidgetText>,
+    // ) -> Response {
+    //     let selected = match current_value {
+    //         Some(value) => *value == selected_value,
+    //         None => false,
+    //     };
+    //     let mut response = self.selectable_label(selected, text);
+    //     if response.clicked() {
+    //         *current_value = if selected {None} else {Some(selected_value)};
+    //         response.mark_changed();
+    //     }
+    //     response
+    // }
 
     fn sort_button<Value: PartialEq + SelectionDepth<Icon>, Icon: Into<WidgetText>> (
         &mut self,
@@ -117,7 +112,7 @@ impl ExtraInteractions for Ui {
             Some(value) => *value == selected_value,
             None => false,
         };
-        let mut response = self.selectable_label(selected, selected_value.icon());
+        let mut response = self.selectable_label(selected, selected_value.format());
         if response.clicked() {
             if selected {
                 current_value.unwrap().inc();
@@ -133,21 +128,8 @@ impl ExtraInteractions for Ui {
     }
 }
 
-fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
-    RecordBatch::concat(&batches[0].schema(), &batches).unwrap()
-}
-
-struct ParquetTable {
-    pub data: ParquetData,
-    pub filters: DataFilters,
-}
-
 impl ParquetTable {
     fn update_data(&mut self, filters: DataFilters) -> Self {
-        todo!()
-    }
-
-    fn create_parquet_table(&mut self) -> Self {
         todo!()
     }
 
@@ -195,101 +177,17 @@ impl ParquetTable {
 
 }
 
-
-
-pub struct DataFilters {
-    sort: Option<String>,
-    table_name: String,
-    ascending: bool,
-    query: Option<String>,
-}
-
-// TODO: add trait `Pane` for informational panes
-
-// TODO: serialize this for the query pane
-impl Default for DataFilters {
-    fn default() -> Self {
-        Self {
-            sort: None,
-            table_name: "main".to_string(),
-            ascending: true,
-            query: None,
-        }
-    }
-}
-
-
-pub struct ParquetData {
-    pub filename: String,
-    // pub metadata: ??,
-    pub data: RecordBatch,
-    dataframe: Arc<DataFrame>
-}
-
-impl ParquetData {
-    pub async fn query(filename: &str, filters: &DataFilters) -> Option<Self> {
-        let ctx = SessionContext::new();
-        ctx.register_parquet(filters.table_name.as_str(), filename, ParquetReadOptions::default()).await.ok();
-        // FIXME: may be missing query
-        match ctx.sql(filters.query.as_ref().unwrap().as_str()).await.ok() {
-            Some(df) => {
-                if let Some(data) = df.collect().await.ok() {
-                    let data = concat_record_batches(data);
-                    Some(ParquetData { filename: filename.to_string(), data: data, dataframe: df })
-                } else {
-                    // FIXME: syntax errors wipe data
-                    None
-                }
-            },
-            None => {
-                None
-            }
-        }
-    }
-
-    pub async fn sort(self, filters: &DataFilters) -> Self {
-        // FIXME: unsafe unwrap
-        let df = self.dataframe.sort(vec![col(filters.sort.as_ref().unwrap().as_str()).sort(filters.ascending, false)]);
-
-        // FIXME: panic on bad query
-        match df.ok() {
-            Some(df) => {
-                ParquetData { filename: self.filename, data: self.data, dataframe: df }
-            },
-            None => {
-                self
-            }
-        }
-    }
-
-    pub async fn load(filename: String) -> Option<Self> {
-        let ctx = SessionContext::new();
-        match ctx.read_parquet(&filename, ParquetReadOptions::default()).await.ok() {
-            Some(df) => {
-                let data = df.collect().await.unwrap();
-                let data = concat_record_batches(data);
-                Some(ParquetData { filename: filename.to_string(), data: data, dataframe: df })
-            },
-            None => {
-                None
-            }
-        }
-    }
-}
-
 async fn file_dialog() -> String {
     let file = AsyncFileDialog::new()
        .pick_file()
        .await;
 
-    // TODO: handle wasm file object
     // FIXME: unsafe unwraps
     file.unwrap().inner().to_str().unwrap().to_string()
 }
 
 pub struct ParqBenchApp {
-    pub menu_panel: Option<MenuPanels>,
-    pub table: Option<ParquetTable>,
+    pub table: Option<ParquetData>,
 
     // accessed only by methods
     runtime: tokio::runtime::Runtime,
@@ -300,7 +198,6 @@ impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
             // ui elements
-            menu_panel: None,
             table: None,
 
             // table_name: "main".to_string(),
@@ -322,7 +219,7 @@ impl ParqBenchApp {
             Some(output) => {
                 match output.try_recv() {
                     Ok(data) => {
-                        self.table = Some(ParquetTable {data: data, filters: DataFilters::default() });
+                        self.table = Some(ParquetTable {data: data.unwrap(), filters: DataFilters::default() });
                         self.pipe = None;
                         false
                     },
@@ -376,15 +273,39 @@ impl eframe::App for ParqBenchApp {
     // TODO: notification of loading failures, extend Option to have error, empty, and full states?
     // TODO: show 'drag file to load' before loaded
     // TODO: parse pandas format metadata
+    // TODO: close open file
+    // TODO: open with ... hooks (cmd line args)
     // TODO: confirm exit
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        //////////
+        // Frame setup. Check if various interactions are in progress and resolve them
+        //////////
+
         if !ctx.input().raw.dropped_files.is_empty() {
             // FIXME: unsafe unwraps
             let file: egui::DroppedFile = ctx.input().raw.dropped_files.last().unwrap().clone();
             let filename = file.path.unwrap().to_str().unwrap().to_string();
             self.run_data_future(ParquetData::load(filename), ctx);
         }
+
+        //////////
+        // Main UI layout.
+        //////////
+
+        //////////
+        //   Using static layout until I put together a TabTree that can make this dynamic
+        //
+        //   | menu_bar            |
+        //   -----------------------
+        //   |       |             |
+        //   | query |     main    |
+        //   | info  |     table   |
+        //   |       |             |
+        //   -----------------------
+        //   | notification footer |
+        //
+        //////////
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -394,7 +315,6 @@ impl eframe::App for ParqBenchApp {
                     });
 
                     if ui.button("Open...").clicked() {
-                        // TODO: move fully into state struct
                         let filename = self.runtime.block_on(file_dialog());
                         self.run_data_future(ParquetData::load(filename), ctx);
                         ui.close_menu();
@@ -409,50 +329,18 @@ impl eframe::App for ParqBenchApp {
 
 
         egui::SidePanel::left("side_panel").min_width(0f32).max_width(400f32).resizable(true).show(ctx, |ui| {
-
-            ui.horizontal_top(|ui| {
-                ui.vertical(|ui| {
-                    let _ = ui.toggleable_value(&mut self.menu_panel, MenuPanels::Schema, "\u{FF5B}");
-                    let _ = ui.toggleable_value(&mut self.menu_panel, MenuPanels::Info, "\u{2139}");
-                    let _ = ui.toggleable_value(&mut self.menu_panel, MenuPanels::Filter, "\u{1F50E}");
-                });
-
-                match &self.menu_panel {
-                    // TODO: looks like CollapsingState can accomplish this nicely
-                    Some(panel) => {
-                        match panel {
-                            MenuPanels::Schema => {
-                                egui::ScrollArea::vertical().show(ui, |ui| {
-                                    ui.heading("Schema");
-                                    ui.label("Not Yet Implemented");
-                                });
-                            },
-                            MenuPanels::Info => {
-                                egui::ScrollArea::vertical().show(ui, |ui| {
-                                    ui.vertical(|ui| {
-                                        ui.heading("File Info");
-                                        ui.label("Not Yet Implemented");
-                                    });
-                                });
-                            },
-                            MenuPanels::Filter => {
-                                egui::ScrollArea::vertical().show(ui, |ui| {
-                                    ui.label("Filter");
-                                    ui.label("Not Yet Implemented");
-                                    ui.set_enabled(false);
-                                    ui.label("Table Name");
-                                    // ui.text_edit_singleline(&mut self.filters.table_name);
-                                    ui.label("SQL Query");
-                                    // ui.text_edit_singleline(&mut self.filters.query);
-                                    // TODO: input, update data, output for errors
-                                    // button
-                                    // self.data.query(self.filters)
-                                });
-                            }
-                        }
-                    },
-                    _ => {},
-                }
+            // TODO: collapsing headers
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.label("Filter");
+                ui.label("Not Yet Implemented");
+                ui.set_enabled(false);
+                ui.label("Table Name");
+                // ui.text_edit_singleline(&mut self.filters.table_name);
+                ui.label("SQL Query");
+                // ui.text_edit_singleline(&mut self.filters.query);
+                // TODO: input, update data, output for errors
+                // button
+                // self.data.query(self.filters)
             });
         });
 

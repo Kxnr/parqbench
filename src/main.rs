@@ -1,7 +1,11 @@
 #![warn(clippy::all, rust_2018_idioms)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-// When compiling natively:
+mod data;
+mod app;
+
+use parqbench::app::ParqBenchApp;
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     // Log to stdout (if you run with `RUST_LOG=debug`).
@@ -15,6 +19,6 @@ fn main() {
     eframe::run_native(
         "ParqBench",
         options,
-        Box::new(|cc| Box::new(parqbench::ParqBenchApp::new(cc))),
+        Box::new(|cc| Box::new(parqbench::app::ParqBenchApp::new(cc))),
     );
 }
