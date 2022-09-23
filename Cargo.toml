@@ -2,8 +2,10 @@
 name = "parqbench"
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0-or-later"
 authors = ["Connor Keane <connor.keane@kxnr.me"]
 rust-version = "1.60"
+description = "A utility for viewing parquet files built on egui."
 
 [dependencies]
 egui = "~0.18"
