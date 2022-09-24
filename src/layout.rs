@@ -4,11 +4,11 @@ use egui::{Ui, WidgetText};
 use std::future::Future;
 use std::marker::Send;
 
+use crate::components::{file_dialog, SelectionDepth};
 use core::default::Default;
 use f32;
 use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
-use crate::components::{SelectionDepth, file_dialog};
 
 use crate::data::{DataFilters, ParquetData, SortState};
 

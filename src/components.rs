@@ -1,9 +1,9 @@
+use crate::data::{DataFilters, ParquetData, SortState};
 use datafusion::arrow::util::display::array_value_to_string;
 use egui::{Response, Ui, WidgetText};
 use egui_extras::{Size, TableBuilder};
 use rfd::AsyncFileDialog;
 use tracing_subscriber::fmt::init;
-use crate::data::{DataFilters, ParquetData, SortState};
 
 impl DataFilters {
     fn render(&self, ui: &mut Ui) {
@@ -41,7 +41,8 @@ impl ParquetData {
 
         let text_height = egui::TextStyle::Body.resolve(style).size;
 
-        let initial_col_width = (ui.available_width() - style.spacing.scroll_bar_width) / self.data.num_columns() as f32;
+        let initial_col_width = (ui.available_width() - style.spacing.scroll_bar_width)
+            / self.data.num_columns() as f32;
 
         // stop columns from resizing to smaller than the window--remainder stops the last column
         // growing, which we explicitly want to allow for the case of large datatypes.
@@ -63,7 +64,7 @@ impl ParquetData {
                 self.data.num_columns(),
             )
             .resizable(true)
-            .header( header_height, |mut header| {
+            .header(header_height, |mut header| {
                 for field in self.data.schema().fields() {
                     header.col(|ui| {
                         let column_label =
@@ -95,11 +96,15 @@ impl ParquetData {
                                 // at most a few dozen records at a time (barring pathological
                                 // tables with absurd numbers of columns) and should still
                                 // have conversion times on the order of ns.
-                                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(false),
+                                ui.with_layout(
+                                    egui::Layout::left_to_right(egui::Align::Center)
+                                        .with_main_wrap(false),
                                     |ui| {
-                                        let value = array_value_to_string(data_col, row_index).unwrap();
+                                        let value =
+                                            array_value_to_string(data_col, row_index).unwrap();
                                         ui.label(value);
-                                });
+                                    },
+                                );
                             });
                         }
                     },
@@ -108,7 +113,6 @@ impl ParquetData {
         filters
     }
 }
-
 
 impl SelectionDepth<String> for SortState {
     fn inc(&self) -> Self {
