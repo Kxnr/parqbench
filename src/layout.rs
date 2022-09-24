@@ -205,11 +205,10 @@ impl ParqBenchApp {
         let mut sorted_column = table.filters.sort.clone();
 
         let min_col_size = LAYOUT.text_height * LAYOUT.min_col_width;
-        let initial_col_size = f32::max(ui.available_width() / table.data.schema().fields().len() as f32, min_col_size);
+        let initial_col_size = f32::max(ui.available_width() / table.data.num_columns() as f32, min_col_size);
 
         TableBuilder::new(ui)
             .striped(true)
-            .clip(false)
             .columns(Size::initial(initial_col_size).at_least(min_col_size), table.data.num_columns())
             .resizable(true)
             .header(LAYOUT.text_height * LAYOUT.row_scale, |mut header| {
@@ -217,10 +216,12 @@ impl ParqBenchApp {
                     header.col(|ui| {
                         // {column: field.name().to_owned(), sort_state: table.filters.ascending, icon: Default::default()};
                         let column_label = if is_sorted_column(&sorted_column, field.name().to_string()) { sorted_column.clone().unwrap() } else { SortState::NotSorted(field.name().to_string()) };
-                        let response = ui.sort_button( &mut sorted_column, column_label.clone());
-                        if response.clicked() {
-                            filters = Some(DataFilters { sort: sorted_column.clone(), ..table.filters.clone()});
-                        };
+                        ui.horizontal_centered(|ui| {
+                            let response = ui.sort_button(&mut sorted_column, column_label.clone());
+                            if response.clicked() {
+                                filters = Some(DataFilters { sort: sorted_column.clone(), ..table.filters.clone() });
+                            }
+                        });
                     });
                 }
             })
@@ -324,14 +325,16 @@ impl eframe::App for ParqBenchApp {
             if self.data_pending() {
                 ui.set_enabled(false);
                 if self.table.is_none() {
-                    ui.horizontal_centered(|ui| {
+                    ui.centered_and_justified(|ui| {
                         ui.spinner();
                     });
                 }
             } else {
-                ui.horizontal_centered(|ui| {
-                    ui.label("Drag and drop parquet file here.");
-                });
+                if self.table.is_none() {
+                    ui.centered_and_justified(|ui| {
+                        ui.label("Drag and drop parquet file here.");
+                    });
+                }
             }
 
             egui::ScrollArea::horizontal().show(ui, |ui| {

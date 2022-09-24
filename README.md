@@ -15,3 +15,4 @@ A simple, cross-platform, utility for viewing parquet files, build on egui and a
 - [ ] allow configuration of layout
 - [ ] notification for errors
 - [ ] support all filetypes supported by arrow
+- [ ] CI for builds/releases
