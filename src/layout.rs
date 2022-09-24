@@ -47,7 +47,7 @@ impl SelectionDepth<String> for SortState {
             SortState::Descending(col) => format!("\u{23f7} {}", col),
             SortState::Ascending(col) => format!("\u{23f6} {}", col),
             SortState::NotSorted(col) => format!("\u{2195} {}", col),
-        }.to_string()
+        }
     }
 }
 
@@ -135,7 +135,7 @@ impl ParqBenchApp {
     pub fn data_pending(&mut self) -> bool {
         // hide implementation details of waiting for data to load
         // FIXME: should do some error handling/notification
-        return match &mut self.pipe {
+        match &mut self.pipe {
             Some(output) => {
                 match output.try_recv() {
                     Ok(data) => match data {
@@ -165,7 +165,7 @@ impl ParqBenchApp {
         }
     }
 
-    pub fn run_data_future<F>(&mut self, future: F, ctx: &egui::Context) -> ()
+    pub fn run_data_future<F>(&mut self, future: F, ctx: &egui::Context)
     where F: Future<Output=Result<ParquetData, String>> + Send + 'static,
     {
         if self.data_pending() {
@@ -191,8 +191,8 @@ impl ParqBenchApp {
             match sorted_col {
                 Some(sort) => {
                     match sort {
-                        SortState::Ascending(sorted_col) => sorted_col.to_owned() == col,
-                        SortState::Descending(sorted_col) => sorted_col.to_owned() == col,
+                        SortState::Ascending(sorted_col) => *sorted_col == col,
+                        SortState::Descending(sorted_col) => *sorted_col == col,
                         _ => false
                     }
                 },
@@ -329,12 +329,10 @@ impl eframe::App for ParqBenchApp {
                         ui.spinner();
                     });
                 }
-            } else {
-                if self.table.is_none() {
-                    ui.centered_and_justified(|ui| {
-                        ui.label("Drag and drop parquet file here.");
-                    });
-                }
+            } else if self.table.is_none() {
+                ui.centered_and_justified(|ui| {
+                    ui.label("Drag and drop parquet file here.");
+                });
             }
 
             egui::ScrollArea::horizontal().show(ui, |ui| {
@@ -343,10 +341,9 @@ impl eframe::App for ParqBenchApp {
                     _ => None
                 };
 
-                match filters {
-                    Some(filters) => self.run_data_future(self.table.as_ref().clone().unwrap().sort(Some(filters)), ui.ctx()),
-                    _ => {}
-                };
+                if let Some(filters) = filters {
+                     self.run_data_future(self.table.as_ref().clone().unwrap().sort(Some(filters)), ui.ctx())
+                }
             });
         });
     }

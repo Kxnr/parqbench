@@ -52,7 +52,7 @@ impl ParquetData {
             Ok(df) => {
                 let data = df.collect().await.unwrap();
                 let data = concat_record_batches(data);
-                Ok(ParquetData { filename: filename, data: data, dataframe: df, filters: DataFilters::default()})
+                Ok(ParquetData { filename, data, dataframe: df, filters: DataFilters::default()})
             },
             Err(_) => {
                 Err("Could not load file.".to_string())
@@ -74,7 +74,7 @@ impl ParquetData {
                     match df.collect().await {
                         Ok(data) => {
                             let data = concat_record_batches(data);
-                            let data = ParquetData {filename: filename.to_owned(), data: data, dataframe: df, filters: filters.clone()};
+                            let data = ParquetData {filename: filename.to_owned(), data, dataframe: df, filters: filters.clone()};
                             data.sort(None).await
                         },
                         Err(_) => Err("Could not query file".to_string())
@@ -102,7 +102,7 @@ impl ParquetData {
                 match self.dataframe.sort(vec![col(_col).sort(ascending, false)]) {
                     Ok(df) => {
                         match df.collect().await {
-                            Ok(data) => Ok(ParquetData { filename: self.filename, data: concat_record_batches(data), dataframe: df, filters: filters}),
+                            Ok(data) => Ok(ParquetData { filename: self.filename, data: concat_record_batches(data), dataframe: df, filters}),
                             Err(_) => Err("Error sorting data".to_string())
                         }
                     }
@@ -110,7 +110,7 @@ impl ParquetData {
                 }
             },
             None => {
-                Ok(ParquetData {filters: filters, ..self})
+                Ok(ParquetData {filters, ..self})
             }
         }
     }
