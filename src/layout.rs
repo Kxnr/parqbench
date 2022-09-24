@@ -1,108 +1,16 @@
 use datafusion::arrow::util::display::array_value_to_string;
 use eframe;
-use egui::{Response, Ui, WidgetText};
-use egui_extras::{Size, TableBuilder};
+use egui::{Ui, WidgetText};
 use std::future::Future;
 use std::marker::Send;
 
 use core::default::Default;
 use f32;
-use rfd::AsyncFileDialog;
 use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
+use crate::components::{SelectionDepth, file_dialog};
 
 use crate::data::{DataFilters, ParquetData, SortState};
-
-// let TEXT_HEIGHT = egui::TextStyle::Body.resolve(ui.style()).size;
-struct Layout {
-    text_height: f32,
-    min_col_width: f32,
-    row_scale: f32,
-}
-
-static LAYOUT: Layout = Layout {
-    text_height: 12f32,
-    min_col_width: 12f32,
-    row_scale: 1.5f32,
-};
-
-impl SelectionDepth<String> for SortState {
-    fn inc(&self) -> Self {
-        match self {
-            SortState::NotSorted(col) => SortState::Descending(col.to_owned()),
-            SortState::Ascending(col) => SortState::Descending(col.to_owned()),
-            SortState::Descending(col) => SortState::Ascending(col.to_owned()),
-        }
-    }
-
-    fn reset(&self) -> Self {
-        // one day, I'll be proficient enough with macros that they'll be worth the time...
-        match self {
-            SortState::NotSorted(col) => SortState::NotSorted(col.to_owned()),
-            SortState::Ascending(col) => SortState::NotSorted(col.to_owned()),
-            SortState::Descending(col) => SortState::NotSorted(col.to_owned()),
-        }
-    }
-
-    fn format(&self) -> String {
-        match self {
-            SortState::Descending(col) => format!("\u{23f7} {}", col),
-            SortState::Ascending(col) => format!("\u{23f6} {}", col),
-            SortState::NotSorted(col) => format!("\u{2195} {}", col),
-        }
-    }
-}
-
-trait SelectionDepth<Icon> {
-    fn inc(&self) -> Self;
-
-    fn reset(&self) -> Self;
-
-    fn format(&self) -> Icon
-    where
-        Icon: Into<WidgetText>;
-}
-
-trait ExtraInteractions {
-    fn sort_button<Value: PartialEq + SelectionDepth<Icon>, Icon: Into<WidgetText>>(
-        &mut self,
-        current_value: &mut Option<Value>,
-        selected_value: Value,
-    ) -> Response;
-}
-
-impl ExtraInteractions for Ui {
-    fn sort_button<Value: PartialEq + SelectionDepth<Icon>, Icon: Into<WidgetText>>(
-        &mut self,
-        current_value: &mut Option<Value>,
-        selected_value: Value,
-    ) -> Response {
-        let selected = match current_value {
-            Some(value) => *value == selected_value,
-            None => false,
-        };
-        let mut response = self.selectable_label(selected, selected_value.format());
-        if response.clicked() {
-            if selected {
-                *current_value = Some(selected_value.inc());
-            } else {
-                if let Some(value) = current_value {
-                    value.reset();
-                }
-                *current_value = Some(selected_value.inc());
-            };
-            response.mark_changed();
-        }
-        response
-    }
-}
-
-async fn file_dialog() -> String {
-    let file = AsyncFileDialog::new().pick_file().await;
-
-    // FIXME: unsafe unwraps
-    file.unwrap().inner().to_str().unwrap().to_string()
-}
 
 pub struct ParqBenchApp {
     pub table: Arc<Option<ParquetData>>,
@@ -180,78 +88,6 @@ impl ParqBenchApp {
         }
 
         self.runtime.spawn(inner::<F>(future, ctx.clone(), tx));
-    }
-
-    fn render_table(&self, ui: &mut Ui) -> Option<DataFilters> {
-        fn is_sorted_column(sorted_col: &Option<SortState>, col: String) -> bool {
-            match sorted_col {
-                Some(sort) => match sort {
-                    SortState::Ascending(sorted_col) => *sorted_col == col,
-                    SortState::Descending(sorted_col) => *sorted_col == col,
-                    _ => false,
-                },
-                None => false,
-            }
-        }
-
-        let table = self.table.as_ref().clone().unwrap();
-        let mut filters: Option<DataFilters> = None;
-        let mut sorted_column = table.filters.sort.clone();
-
-        let min_col_size = LAYOUT.text_height * LAYOUT.min_col_width;
-        let initial_col_size = f32::max(
-            ui.available_width() / table.data.num_columns() as f32,
-            min_col_size,
-        );
-
-        TableBuilder::new(ui)
-            .striped(true)
-            .columns(
-                Size::initial(initial_col_size).at_least(min_col_size),
-                table.data.num_columns(),
-            )
-            .resizable(true)
-            .header(LAYOUT.text_height * LAYOUT.row_scale, |mut header| {
-                for field in table.data.schema().fields() {
-                    header.col(|ui| {
-                        // {column: field.name().to_owned(), sort_state: table.filters.ascending, icon: Default::default()};
-                        let column_label =
-                            if is_sorted_column(&sorted_column, field.name().to_string()) {
-                                sorted_column.clone().unwrap()
-                            } else {
-                                SortState::NotSorted(field.name().to_string())
-                            };
-                        ui.horizontal_centered(|ui| {
-                            let response = ui.sort_button(&mut sorted_column, column_label.clone());
-                            if response.clicked() {
-                                filters = Some(DataFilters {
-                                    sort: sorted_column.clone(),
-                                    ..table.filters.clone()
-                                });
-                            }
-                        });
-                    });
-                }
-            })
-            .body(|body| {
-                body.rows(
-                    LAYOUT.text_height,
-                    table.data.num_rows() as usize,
-                    |row_index, mut row| {
-                        for data_col in table.data.columns() {
-                            row.col(|ui| {
-                                // while not efficient (as noted in docs) we need to display
-                                // at most a few dozen records at a time (barring pathological
-                                // tables with absurd numbers of columns) and should still
-                                // have conversion times on the order of ns.
-                                let value = array_value_to_string(data_col, row_index).unwrap();
-                                ui.label(value);
-                            });
-                        }
-                    },
-                );
-            });
-        filters
     }
 }
 
@@ -338,6 +174,20 @@ impl eframe::App for ParqBenchApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            egui::ScrollArea::horizontal().show(ui, |ui| {
+                let filters = match *self.table {
+                    Some(_) => self.table.as_ref().clone().unwrap().render_table(ui),
+                    _ => None,
+                };
+
+                if let Some(filters) = filters {
+                    self.run_data_future(
+                        self.table.as_ref().clone().unwrap().sort(Some(filters)),
+                        ui.ctx(),
+                    )
+                }
+            });
+
             if self.data_pending() {
                 ui.set_enabled(false);
                 if self.table.is_none() {
@@ -350,20 +200,6 @@ impl eframe::App for ParqBenchApp {
                     ui.label("Drag and drop parquet file here.");
                 });
             }
-
-            egui::ScrollArea::horizontal().show(ui, |ui| {
-                let filters = match *self.table {
-                    Some(_) => self.render_table(ui),
-                    _ => None,
-                };
-
-                if let Some(filters) = filters {
-                    self.run_data_future(
-                        self.table.as_ref().clone().unwrap().sort(Some(filters)),
-                        ui.ctx(),
-                    )
-                }
-            });
         });
     }
 }

@@ -72,9 +72,7 @@ impl ParquetData {
         .await
         .ok();
 
-        match filters.query.as_ref() {
-            // TODO: better to hang onto context rather than df, to sidestep re-loading?
-            // TODO: as is, easier to load subset
+        match &filters.query {
             Some(query) => match ctx.sql(query.as_str()).await {
                 Ok(df) => match df.collect().await {
                     Ok(data) => {
@@ -83,7 +81,7 @@ impl ParquetData {
                             filename: filename.to_owned(),
                             data,
                             dataframe: df,
-                            filters: filters.clone(),
+                            filters: filters,
                         };
                         data.sort(None).await
                     }
