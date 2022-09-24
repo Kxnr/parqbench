@@ -35,23 +35,19 @@ impl Default for ParqBenchApp {
 
 impl ParqBenchApp {
     // TODO: re-export load, query, and sort.
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        cc.egui_ctx.set_visuals(egui::style::Visuals::dark());
         Default::default()
     }
 
-    pub fn new_with_future<F>(_cc: &eframe::CreationContext<'_>, future: F) -> Self
+    pub fn new_with_future<F>(cc: &eframe::CreationContext<'_>, future: F) -> Self
     where
         F: Future<Output = Result<ParquetData, String>> + Send + 'static,
     {
-        let app: Self = Default::default();
-        let data = app.runtime.block_on(future);
-        match data {
-            Ok(data) => Self {
-                table: Arc::new(Some(data)),
-                ..app
-            },
-            Err(_) => app,
-        }
+        let mut app: Self = Default::default();
+        cc.egui_ctx.set_visuals(egui::style::Visuals::dark());
+        app.run_data_future(future, &cc.egui_ctx);
+        app
     }
 
     pub fn data_pending(&mut self) -> bool {
@@ -111,7 +107,6 @@ impl eframe::App for ParqBenchApp {
         //////////
         // Frame setup. Check if various interactions are in progress and resolve them
         //////////
-        ctx.set_visuals(egui::style::Visuals::dark());
 
         if !ctx.input().raw.dropped_files.is_empty() {
             // FIXME: unsafe unwraps
@@ -158,21 +153,18 @@ impl eframe::App for ParqBenchApp {
             });
         });
 
-        // egui::SidePanel::left("side_panel").min_width(0f32).max_width(400f32).resizable(true).show(ctx, |ui| {
-        //     // TODO: collapsing headers
-        //     egui::ScrollArea::vertical().show(ui, |ui| {
-        //         ui.label("Filter");
-        //         ui.label("Not Yet Implemented");
-        //         ui.set_enabled(false);
-        //         ui.label("Table Name");
-        //         // ui.text_edit_singleline(&mut self.filters.table_name);
-        //         ui.label("SQL Query");
-        //         // ui.text_edit_singleline(&mut self.filters.query);
-        //         // TODO: input, update data, output for errors
-        //         // button
-        //         // self.data.query(self.filters)
-        //     });
-        // });
+        egui::SidePanel::left("side_panel").resizable(true).show(ctx, |ui| {
+            // TODO: collapsing headers
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                // ui.collapsing("Query" |ui| {
+                //     todo!();
+                // });
+
+                ui.collapsing("Settings", |ui| {
+                    ctx.settings_ui(ui);
+                });
+            });
+        });
 
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {

@@ -64,21 +64,7 @@ fn main() {
                         }
                     }
                 })
-            }, // let app = match args.filename {
-               //     Some(filename) => {
-               //         if let Some(args.query) {
-               //             DataFilters {query: args.query, }
-               //         } else {
-               //             let future = ParquetData::load(filename);
-               //             // run_data_future
-               //         }
-               //         let future = ParquetData.
-               //         // ParqBenchApp::new(cc).run_data_future()
-               //     }
-               //     None => {
-               //         layout::ParqBenchApp::new(cc)
-               //     }
-               // }
+            },
         ),
     );
 }
