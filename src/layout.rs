@@ -17,12 +17,12 @@ use crate::data::{DataFilters, ParquetData, SortState};
 struct Layout {
     text_height: f32,
     min_col_width: f32,
-    row_scale: f32,
+    row_scale: f32
 }
 
 static LAYOUT: Layout = Layout {text_height: 12f32,
                         min_col_width: 12f32,
-                        row_scale: 1.5f32}
+                        row_scale: 1.5f32};
 
 impl SelectionDepth<String> for SortState {
     fn inc(&self) -> Self {

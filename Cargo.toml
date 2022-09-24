@@ -1,6 +1,6 @@
 [package]
 name = "parqbench"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Connor Keane <connor.keane@kxnr.me"]
