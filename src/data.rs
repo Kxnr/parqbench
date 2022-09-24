@@ -1,19 +1,21 @@
-use std::ffi::IntoStringError;
-use std::str::FromStr;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::col;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use std::ffi::IntoStringError;
+use std::str::FromStr;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct TableName {
-    pub name: String
+    pub name: String,
 }
 
 impl Default for TableName {
     fn default() -> Self {
-        Self { name: "main".to_string() }
+        Self {
+            name: "main".to_string(),
+        }
     }
 }
 

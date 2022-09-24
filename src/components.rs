@@ -8,7 +8,7 @@ use tracing_subscriber::fmt::init;
 struct QueryPane {
     filename: String,
     table_name: String,
-    query: String
+    query: String,
 }
 
 impl QueryPane {

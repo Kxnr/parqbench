@@ -39,14 +39,18 @@ impl ParqBenchApp {
         Default::default()
     }
 
-    pub fn new_with_future<F>(_cc: &eframe::CreationContext<'_>, future: F) -> Self where
-    F: Future<Output = Result<ParquetData, String>> + Send + 'static,
+    pub fn new_with_future<F>(_cc: &eframe::CreationContext<'_>, future: F) -> Self
+    where
+        F: Future<Output = Result<ParquetData, String>> + Send + 'static,
     {
         let app: Self = Default::default();
         let data = app.runtime.block_on(future);
         match data {
-            Ok(data) => Self {table: Arc::new(Some(data)), ..app},
-            Err(_) => app
+            Ok(data) => Self {
+                table: Arc::new(Some(data)),
+                ..app
+            },
+            Err(_) => app,
         }
     }
 
