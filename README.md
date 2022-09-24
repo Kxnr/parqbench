@@ -11,7 +11,7 @@ A simple, cross-platform, utility for viewing parquet files, build on egui and a
 - [ ] tab layout/tree
 - [ ] add controls and metadata to side panels
 - [ ] parse pandas format metadata
-- [ ] open with hooks (cmd line args)
+- [x] open with hooks (cmd line args)
 - [ ] allow configuration of layout
 - [ ] notification for errors
 - [ ] support all filetypes supported by arrow
