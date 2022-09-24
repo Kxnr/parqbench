@@ -6,20 +6,21 @@ pub mod data;
 pub mod layout;
 
 use std::env;
+use std::process::exit;
 use structopt::StructOpt;
-use crate::data::{DataFilters, TableName};
+use crate::data::{DataFilters, ParquetData, TableName};
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug)]
 #[structopt()]
 struct Args {
     #[structopt()]
     filename: Option<String>,
 
     #[structopt(short, long, requires("filename"))]
-    query: String,
+    query: Option<String>,
 
-    #[structopt(default_value, short, long, requires("filename"))]
-    table_name: TableName
+    #[structopt(short, long, requires_all(&["filename", "query"]))]
+    table_name: Option<TableName>
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,9 +29,7 @@ fn main() {
     tracing_subscriber::fmt::init();
 
     let args = Args::from_args();
-    if let (
-        
-    )
+
 
     let options = eframe::NativeOptions {
         drag_and_drop_support: true,
@@ -40,6 +39,50 @@ fn main() {
     eframe::run_native(
         "ParqBench",
         options,
-        Box::new(|cc| Box::new(layout::ParqBenchApp::new(cc))),
+        Box::new(move |cc|
+                     {
+                         // layout::ParqBenchApp::new_with_future(ParquetData::load_with_query())
+
+                         Box::new(
+                             match args.filename {
+                                 None => layout::ParqBenchApp::new(cc),
+                                 Some(filename) => {
+                                     match args.query {
+                                         Some(_) => {
+                                             let filters = DataFilters {query: args.query,
+                                                                         // FIXME: this doesn't grab struct default
+                                                                         table_name: args.table_name.unwrap_or_default(),
+                                                                         ..Default::default() };
+                                             dbg!(filters.clone());
+                                             let future = ParquetData::load_with_query(filename, filters);
+                                             layout::ParqBenchApp::new_with_future(cc, future)
+                                         },
+                                         None => {
+                                             let future = ParquetData::load(filename);
+                                             layout::ParqBenchApp::new_with_future(cc, future)
+                                         }
+                                     }
+                                 }
+                             }
+                         )
+
+                     }
+
+                // let app = match args.filename {
+                //     Some(filename) => {
+                //         if let Some(args.query) {
+                //             DataFilters {query: args.query, }
+                //         } else {
+                //             let future = ParquetData::load(filename);
+                //             // run_data_future
+                //         }
+                //         let future = ParquetData.
+                //         // ParqBenchApp::new(cc).run_data_future()
+                //     }
+                //     None => {
+                //         layout::ParqBenchApp::new(cc)
+                //     }
+                // }
+            ),
     );
 }

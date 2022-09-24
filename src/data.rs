@@ -6,36 +6,35 @@ use datafusion::logical_expr::col;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use std::sync::Arc;
 
+#[derive(Debug, Clone)]
 pub struct TableName {
-    table_name: String
+    pub name: String
 }
 
 impl Default for TableName {
     fn default() -> Self {
-        Self {
-            table_name: "main".to_string()
-        }
-    }
-}
-
-impl ToString for TableName {
-    fn to_string(&self) -> String {
-        self.table_name.to_owned()
+        Self { name: "main".to_string() }
     }
 }
 
 impl FromStr for TableName {
     type Err = IntoStringError;
 
-    fn from_str(s: &str) -> Result<Self, IntoStringError> {
-        Ok(TableName { table_name: s.to_owned() })
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self { name: s.to_owned() })
     }
 }
 
-#[derive(Clone)]
+impl ToString for TableName {
+    fn to_string(&self) -> String {
+        self.name.to_owned()
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct DataFilters {
     pub sort: Option<SortState>,
-    pub table_name: String,
+    pub table_name: TableName,
     pub query: Option<String>,
 }
 
@@ -44,7 +43,7 @@ impl Default for DataFilters {
     fn default() -> Self {
         Self {
             sort: None,
-            table_name: TableName::default().table_name,
+            table_name: TableName::default(),
             query: None,
         }
     }
@@ -58,7 +57,7 @@ pub struct ParquetData {
     dataframe: Arc<DataFrame>,
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum SortState {
     NotSorted(String),
     Ascending(String),
@@ -90,11 +89,11 @@ impl ParquetData {
         }
     }
 
-    pub async fn load_with_query(filename: &str, filters: DataFilters) -> Result<Self, String> {
+    pub async fn load_with_query(filename: String, filters: DataFilters) -> Result<Self, String> {
         let ctx = SessionContext::new();
         ctx.register_parquet(
-            filters.table_name.as_str(),
-            filename,
+            filters.table_name.to_string().as_str(),
+            filename.as_str(),
             ParquetReadOptions::default(),
         )
         .await
