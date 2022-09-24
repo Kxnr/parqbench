@@ -5,8 +5,18 @@ use egui_extras::{Size, TableBuilder};
 use rfd::AsyncFileDialog;
 use tracing_subscriber::fmt::init;
 
-impl DataFilters {
-    fn render(&self, ui: &mut Ui) {
+struct QueryPane {
+    filename: String,
+    table_name: String,
+    query: String
+}
+
+impl QueryPane {
+    fn new(data: ParquetData) -> Self {
+        todo!()
+    }
+
+    fn render(&mut self, ui: &mut Ui) {
         // how to cache fields?
         // table name
         // column

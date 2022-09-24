@@ -1,8 +1,36 @@
+use std::ffi::IntoStringError;
+use std::str::FromStr;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::col;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use std::sync::Arc;
+
+pub struct TableName {
+    table_name: String
+}
+
+impl Default for TableName {
+    fn default() -> Self {
+        Self {
+            table_name: "main".to_string()
+        }
+    }
+}
+
+impl ToString for TableName {
+    fn to_string(&self) -> String {
+        self.table_name.to_owned()
+    }
+}
+
+impl FromStr for TableName {
+    type Err = IntoStringError;
+
+    fn from_str(s: &str) -> Result<Self, IntoStringError> {
+        Ok(TableName { table_name: s.to_owned() })
+    }
+}
 
 #[derive(Clone)]
 pub struct DataFilters {
@@ -16,7 +44,7 @@ impl Default for DataFilters {
     fn default() -> Self {
         Self {
             sort: None,
-            table_name: "main".to_string(),
+            table_name: TableName::default().table_name,
             query: None,
         }
     }
