@@ -8,19 +8,21 @@ use std::marker::Send;
 use rfd::AsyncFileDialog;
 use tokio::sync::oneshot::error::TryRecvError;
 use core::default::Default;
-use std::thread::current;
-use tracing_subscriber::registry::Data;
+use std::sync::Arc;
+use f32;
 
 use crate::data::{DataFilters, ParquetData, SortState};
 
-// TODO: create a layout struct with various sizes
-static TEXT_HEIGHT: f32 = 12f32;
-
+// let TEXT_HEIGHT = egui::TextStyle::Body.resolve(ui.style()).size;
 struct Layout {
     text_height: f32,
-    tab_width: f32,
-    column_width: f32
+    min_col_width: f32,
+    row_scale: f32,
 }
+
+static LAYOUT: Layout = Layout {text_height: 12f32,
+                        min_col_width: 12f32,
+                        row_scale: 1.5f32}
 
 impl SelectionDepth<String> for SortState {
     fn inc(&self) -> Self {
@@ -64,13 +66,6 @@ trait SelectionDepth<Icon> {
 }
 
 trait ExtraInteractions {
-    // fn toggleable_value<Value: PartialEq>(
-    //     &mut self,
-    //     current_value: &mut Option<Value>,
-    //     selected_value: Value,
-    //     text: impl Into<WidgetText>,
-    // ) -> Response;
-
     fn sort_button<Value: PartialEq + SelectionDepth<Icon>, Icon: Into<WidgetText>> (
         &mut self,
         current_value: &mut Option<Value>,
@@ -79,24 +74,6 @@ trait ExtraInteractions {
 }
 
 impl ExtraInteractions for Ui {
-    // fn toggleable_valume<Value: PartialEq>(
-    //     &mut self,
-    //     current_value: &mut Option<Value>,
-    //     selected_value: Value,
-    //     text: impl Into<WidgetText>,
-    // ) -> Response {
-    //     let selected = match current_value {
-    //         Some(value) => *value == selected_value,
-    //         None => false,
-    //     };
-    //     let mut response = self.selectable_label(selected, text);
-    //     if response.clicked() {
-    //         *current_value = if selected {None} else {Some(selected_value)};
-    //         response.mark_changed();
-    //     }
-    //     response
-    // }
-
     fn sort_button<Value: PartialEq + SelectionDepth<Icon>, Icon: Into<WidgetText>> (
         &mut self,
         current_value: &mut Option<Value>,
@@ -132,7 +109,8 @@ async fn file_dialog() -> String {
 }
 
 pub struct ParqBenchApp {
-    pub table: Option<ParquetData>,
+    pub table: Arc<Option<ParquetData>>,
+    // error: Err(String) TODO
 
     runtime: tokio::runtime::Runtime,
     pipe: Option<tokio::sync::oneshot::Receiver<Result<ParquetData, String>>>,
@@ -141,10 +119,7 @@ pub struct ParqBenchApp {
 impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
-            // ui elements
-            // table: None,
-
-            table: None,
+            table: Arc::new(None),
             runtime: tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap(),
             pipe: None,
         }
@@ -152,36 +127,34 @@ impl Default for ParqBenchApp {
 }
 
 impl ParqBenchApp {
-    // TODO: re-export load, query, and sort. Need to update ui elements on load (columns), as well as filters
+    // TODO: re-export load, query, and sort.
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Default::default()
     }
 
     pub fn data_pending(&mut self) -> bool {
         // hide implementation details of waiting for data to load
+        // FIXME: should do some error handling/notification
         return match &mut self.pipe {
             Some(output) => {
                 match output.try_recv() {
                     Ok(data) => match data {
                         Ok(data) => {
-                            self.table = Some(data);
+                            self.table = Arc::new(Some(data));
                             self.pipe = None;
                             false
                         },
                         _ => {
-                            // FIXME
-                            println!("data loading didn't work");
                             self.pipe = None;
                             false
                         }
-
                     },
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             true
                         },
                         TryRecvError::Closed => {
-                            true
+                            false
                         }
                     }
                 }
@@ -192,7 +165,6 @@ impl ParqBenchApp {
         }
     }
 
-    // TODO: need to limit to data futures
     pub fn run_data_future<F>(&mut self, future: F, ctx: &egui::Context) -> ()
     where F: Future<Output=Result<ParquetData, String>> + Send + 'static,
     {
@@ -207,15 +179,14 @@ impl ParqBenchApp {
         where F: Future<Output=Result<ParquetData, String>> + Send
         {
             let data = future.await;
-            let result = tx.send(data);
-            println!("data loaded, requesting repaint");
+            let _result = tx.send(data);
             ctx.request_repaint();
         }
 
         self.runtime.spawn(inner::<F>( future, ctx.clone(), tx));
     }
 
-    fn render_table(&mut self, ui: &mut Ui) -> Option<DataFilters> {
+    fn render_table(&self, ui: &mut Ui) -> Option<DataFilters> {
         fn is_sorted_column(sorted_col: &Option<SortState>, col: String) -> bool {
             match sorted_col {
                 Some(sort) => {
@@ -229,18 +200,19 @@ impl ParqBenchApp {
             }
         }
 
-        let table = self.table.as_ref().unwrap();
+        let table = self.table.as_ref().clone().unwrap();
         let mut filters: Option<DataFilters> = None;
         let mut sorted_column = table.filters.sort.clone();
 
-        // TODO: manage sort_state through function?
+        let min_col_size = LAYOUT.text_height * LAYOUT.min_col_width;
+        let initial_col_size = f32::max(ui.available_width() / table.data.schema().fields().len() as f32, min_col_size);
+
         TableBuilder::new(ui)
             .striped(true)
-            // TODO: set sizes in font units
-            // TODO: set widths by type, max(type_width, total_space/columns)
-            .columns(Size::initial(8.0* TEXT_HEIGHT).at_least(8.0 * TEXT_HEIGHT), table.data.num_columns())
+            .clip(false)
+            .columns(Size::initial(initial_col_size).at_least(min_col_size), table.data.num_columns())
             .resizable(true)
-            .header(TEXT_HEIGHT * 1.5, |mut header| {
+            .header(LAYOUT.text_height * LAYOUT.row_scale, |mut header| {
                 for field in table.data.schema().fields() {
                     header.col(|ui| {
                         // {column: field.name().to_owned(), sort_state: table.filters.ascending, icon: Default::default()};
@@ -253,7 +225,7 @@ impl ParqBenchApp {
                 }
             })
             .body(|body| {
-                body.rows(TEXT_HEIGHT, table.data.num_rows() as usize, |row_index, mut row| {
+                body.rows(LAYOUT.text_height, table.data.num_rows() as usize, |row_index, mut row| {
                     for data_col in table.data.columns() {
                         row.col(|ui| {
                             // while not efficient (as noted in docs) we need to display
@@ -271,17 +243,6 @@ impl ParqBenchApp {
 }
 
 impl eframe::App for ParqBenchApp {
-    // TODO: load partitioned dataset
-    // TODO: fill in side panels
-    // TODO: panel layout improvement
-    // TODO: better file dialog (flow for querying data before load)
-    // TODO: notification of loading failures, extend Option to have error, empty, and full states?
-    // TODO: show 'drag file to load' before loaded
-    // TODO: parse pandas format metadata
-    // TODO: close open file
-    // TODO: open with ... hooks (cmd line args)
-    // TODO: confirm exit
-
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         //////////
         // Frame setup. Check if various interactions are in progress and resolve them
@@ -333,7 +294,6 @@ impl eframe::App for ParqBenchApp {
             });
         });
 
-
         // egui::SidePanel::left("side_panel").min_width(0f32).max_width(400f32).resizable(true).show(ctx, |ui| {
         //     // TODO: collapsing headers
         //     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -350,36 +310,40 @@ impl eframe::App for ParqBenchApp {
         //     });
         // });
 
-
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                // match &self.table {
-                //     Some(table) => { ui.label(&format!("{:#?}", table.data.filename)); },
-                //     None => { ui.label("no file set"); },
-                // }
+                match &*self.table {
+                    Some(table) => { ui.label(format!("{:#?}", table.filename)); },
+                    None => { ui.label("no file set"); },
+                }
                 egui::warn_if_debug_build(ui);
             });
         });
 
-
         egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-            // let TEXT_HEIGHT = egui::TextStyle::Body.resolve(ui.style()).size;
-
             if self.data_pending() {
-                ui.spinner();
                 ui.set_enabled(false);
-            };
+                if self.table.is_none() {
+                    ui.horizontal_centered(|ui| {
+                        ui.spinner();
+                    });
+                }
+            } else {
+                ui.horizontal_centered(|ui| {
+                    ui.label("Drag and drop parquet file here.");
+                });
+            }
 
             egui::ScrollArea::horizontal().show(ui, |ui| {
-                let filters = match &self.table {
+                let filters = match *self.table {
                     Some(_) => self.render_table(ui),
-                    None => {ui.label("Drag and drop file here."); None}
+                    _ => None
                 };
+
                 match filters {
-                    Some(filters) => self.run_data_future(self.table.as_ref().unwrap().clone().sort(Some(filters)), ui.ctx()),
+                    Some(filters) => self.run_data_future(self.table.as_ref().clone().unwrap().sort(Some(filters)), ui.ctx()),
                     _ => {}
-                }
+                };
             });
         });
     }

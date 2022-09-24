@@ -1,7 +1,7 @@
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 use datafusion::dataframe::DataFrame;
-use datafusion::prelude::{concat, ParquetReadOptions, SessionContext};
+use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use datafusion::logical_expr::col;
 
 #[derive(Clone)]
@@ -77,10 +77,10 @@ impl ParquetData {
                             let data = ParquetData {filename: filename.to_owned(), data: data, dataframe: df, filters: filters.clone()};
                             data.sort(None).await
                         },
-                        Err(err) => Err("Could not query file".to_string())
+                        Err(_) => Err("Could not query file".to_string())
                     }
                 },
-                Err(err) => Err("Could not query file".to_string())   // two classes of error, sql and file
+                Err(_) => Err("Could not query file".to_string())   // two classes of error, sql and file
             },
             None => Err("No query provided".to_string())
         }
@@ -97,7 +97,7 @@ impl ParquetData {
                 let (_col, ascending) = match sort {
                     SortState::Ascending(col) => {(col, true)},
                     SortState::Descending(col) => {(col, false)},
-                    _ => panic!()
+                    _ => panic!("")
                 };
                 match self.dataframe.sort(vec![col(_col).sort(ascending, false)]) {
                     Ok(df) => {
@@ -110,7 +110,7 @@ impl ParquetData {
                 }
             },
             None => {
-                Ok(ParquetData { filename: self.filename, data: self.data, dataframe: self.dataframe, filters: filters})
+                Ok(ParquetData {filters: filters, ..self})
             }
         }
     }
