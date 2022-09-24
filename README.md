@@ -18,6 +18,7 @@ A simple, cross-platform, utility for viewing parquet files, build on egui and a
 - [ ] CI for builds/releases
 - [x] Update datafusion and egui/eframe
 - [ ] Auto resize columns
+- [ ] revisit &str vs String usages
 
 ## Installation
 

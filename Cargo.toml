@@ -15,6 +15,7 @@ datafusion = "12.0.0"
 rfd = { version ="~0.10", features = ["file-handle-inner"] }
 tokio = { version = "1.21.1", features = ["rt", "sync"] }
 tracing-subscriber = "0.3"
+structopt = "~0.3"
 
 [features]
 default = []

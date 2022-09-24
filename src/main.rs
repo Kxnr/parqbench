@@ -6,13 +6,31 @@ pub mod data;
 pub mod layout;
 
 use std::env;
+use structopt::StructOpt;
+use crate::data::{DataFilters, TableName};
+
+#[derive(StructOpt)]
+#[structopt()]
+struct Args {
+    #[structopt()]
+    filename: Option<String>,
+
+    #[structopt(short, long, requires("filename"))]
+    query: String,
+
+    #[structopt(default_value, short, long, requires("filename"))]
+    table_name: TableName
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     // Log to stdout (if you run with `RUST_LOG=debug`).
     tracing_subscriber::fmt::init();
 
-    let _args: Vec<String> = env::args().collect();
+    let args = Args::from_args();
+    if let (
+        
+    )
 
     let options = eframe::NativeOptions {
         drag_and_drop_support: true,
