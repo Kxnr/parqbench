@@ -1,12 +1,51 @@
 use crate::data::{DataFilters, ParquetData, SortState};
 use crate::TableName;
 use datafusion::arrow::util::display::array_value_to_string;
-use egui::{Response, Ui, WidgetText};
+use egui::{Context, Response, Ui, WidgetText};
 use egui_extras::{Size, TableBuilder};
 use rfd::AsyncFileDialog;
-use std::future::Future;
 
-type DataFuture = dyn Future<Output = Result<ParquetData, String>> + Send + 'static;
+pub trait Popover {
+    fn show(&mut self, ctx: &Context) -> bool;
+}
+
+pub struct Settings {}
+
+impl Popover for Settings {
+    fn show(&mut self, ctx: &Context) -> bool {
+        let mut open = true;
+
+        egui::Window::new("Settings")
+            .collapsible(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ctx.style_ui(ui);
+                ui.set_enabled(false);
+            });
+
+        open
+    }
+}
+
+pub struct Error {
+    pub message: String,
+}
+
+impl Popover for Error {
+    fn show(&mut self, ctx: &Context) -> bool {
+        let mut open = true;
+
+        egui::Window::new("Error")
+            .collapsible(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(format!("Error: {}", self.message));
+                ui.set_enabled(false);
+            });
+
+        open
+    }
+}
 
 pub struct QueryPane {
     filename: String,
@@ -34,7 +73,7 @@ impl QueryPane {
         ui.text_edit_singleline(&mut self.query);
 
         let submit = ui.button("Apply");
-        if submit.clicked() {
+        if submit.clicked() && self.query.len() > 0 {
             let filename = shellexpand::full(&self.filename);
             match filename {
                 Ok(filename) => Some((
@@ -222,9 +261,16 @@ impl ExtraInteractions for Ui {
     }
 }
 
-pub async fn file_dialog() -> String {
+pub async fn file_dialog() -> Result<String, String> {
     let file = AsyncFileDialog::new().pick_file().await;
 
     // FIXME: unsafe unwraps
-    file.unwrap().inner().to_str().unwrap().to_string()
+    if let Some(file) = file {
+        file.path()
+            .to_str()
+            .map(|s| s.to_string())
+            .ok_or("Invalid characters in Path.".to_string())
+    } else {
+        Err("No file loaded.".to_string())
+    }
 }

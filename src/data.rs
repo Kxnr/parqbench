@@ -3,8 +3,12 @@ use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::col;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use std::ffi::IntoStringError;
+use std::future::Future;
 use std::str::FromStr;
 use std::sync::Arc;
+
+pub type DataResult = Result<ParquetData, String>;
+pub type DataFuture = Box<dyn Future<Output = DataResult> + Unpin + Send + 'static>;
 
 #[derive(Debug, Clone)]
 pub struct TableName {
@@ -114,9 +118,9 @@ impl ParquetData {
                         };
                         data.sort(None).await
                     }
-                    Err(_) => Err("Could not query file".to_string()),
+                    Err(msg) => Err(msg.to_string()),
                 },
-                Err(_) => Err("Could not query file".to_string()), // two classes of error, sql and file
+                Err(msg) => Err(msg.to_string()), // two classes of error, sql and file
             },
             None => Err("No query provided".to_string()),
         }

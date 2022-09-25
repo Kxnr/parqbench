@@ -54,11 +54,11 @@ fn main() {
                             };
                             dbg!(filters.clone());
                             let future = ParquetData::load_with_query(filename, filters);
-                            layout::ParqBenchApp::new_with_future(cc, future)
+                            layout::ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
                         }
                         None => {
                             let future = ParquetData::load(filename);
-                            layout::ParqBenchApp::new_with_future(cc, future)
+                            layout::ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
                         }
                     }
                 }

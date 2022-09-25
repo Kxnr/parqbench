@@ -12,13 +12,14 @@ A simple, cross-platform, utility for viewing parquet files, build on egui and a
 - [x] add controls and metadata to side panels
 - [ ] parse pandas format metadata
 - [x] open with hooks (cmd line args)
-- [ ] allow configuration of layout
-- [ ] notification for errors
-- [ ] support all filetypes supported by arrow
+- [x] notification for errors
+- [ ] support all filetypes supported by datafusion
 - [ ] CI for builds/releases
 - [x] Update datafusion and egui/eframe
 - [ ] Auto resize columns
 - [ ] revisit &str vs String usages
+- [ ] query builder Ui
+- [ ] source configuration in query pane
 
 ## Installation
 
@@ -29,4 +30,4 @@ ParqBench is tested for Linux (Manjaro 22.0, kernel 5.15.60) and Windows 10 (21H
 `cargo build --release --target x86_64-pc-windows-gnu`
 `cargo build --release --target x86_64-unknown-linux-gnu`
 
-The builds are self contained, portable, executables. The resulting binaries are placed in `target/<target>`.
+The builds are self-contained, portable, executables. The resulting binaries are placed in `target/<target>`.

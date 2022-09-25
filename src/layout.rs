@@ -1,21 +1,17 @@
-use datafusion::arrow::util::display::array_value_to_string;
 use eframe;
-use egui::{Ui, WidgetText};
-use std::future::Future;
-use std::marker::Send;
 
-use crate::components::{file_dialog, QueryPane};
+use crate::components::{file_dialog, Error, Popover, QueryPane, Settings};
 use core::default::Default;
-use f32;
 use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
 
-use crate::data::{DataFilters, ParquetData};
+use crate::data::{DataFilters, DataFuture, DataResult, ParquetData};
 
 pub struct ParqBenchApp {
     pub table: Arc<Option<ParquetData>>,
     pub query_pane: QueryPane,
-    // error: Err(String) TODO
+    pub popover: Option<Box<dyn Popover>>,
+
     runtime: tokio::runtime::Runtime,
     pipe: Option<tokio::sync::oneshot::Receiver<Result<ParquetData, String>>>,
 }
@@ -31,6 +27,7 @@ impl Default for ParqBenchApp {
                 .build()
                 .unwrap(),
             pipe: None,
+            popover: None,
         }
     }
 }
@@ -42,17 +39,22 @@ impl ParqBenchApp {
         Default::default()
     }
 
-    pub fn new_with_future<F>(cc: &eframe::CreationContext<'_>, future: F) -> Self
-    where
-        F: Future<Output = Result<ParquetData, String>> + Send + 'static,
-    {
+    pub fn new_with_future(cc: &eframe::CreationContext<'_>, future: DataFuture) -> Self {
         let mut app: Self = Default::default();
         cc.egui_ctx.set_visuals(egui::style::Visuals::dark());
         app.run_data_future(future, &cc.egui_ctx);
         app
     }
 
-    pub fn data_pending(&mut self) -> bool {
+    pub fn check_popover(&mut self, ctx: &egui::Context) {
+        if let Some(popover) = &mut self.popover {
+            if !popover.show(ctx) {
+                self.popover = None;
+            }
+        }
+    }
+
+    pub fn check_data_pending(&mut self) -> bool {
         // hide implementation details of waiting for data to load
         // FIXME: should do some error handling/notification
         match &mut self.pipe {
@@ -65,44 +67,45 @@ impl ParqBenchApp {
                         self.pipe = None;
                         false
                     }
-                    _ => {
+                    Err(msg) => {
                         self.pipe = None;
+                        self.popover = Some(Box::new(Error { message: msg }));
                         false
                     }
                 },
                 Err(e) => match e {
                     TryRecvError::Empty => true,
-                    TryRecvError::Closed => false,
+                    TryRecvError::Closed => {
+                        self.popover = Some(Box::new(Error {
+                            message: "Data operation terminated without response.".to_string(),
+                        }));
+                        false
+                    }
                 },
             },
             _ => false,
         }
     }
 
-    pub fn run_data_future<F>(&mut self, future: F, ctx: &egui::Context)
-    where
-        F: Future<Output = Result<ParquetData, String>> + Send + 'static,
-    {
-        if self.data_pending() {
+    pub fn run_data_future(&mut self, future: DataFuture, ctx: &egui::Context) {
+        if self.check_data_pending() {
             // FIXME, use vec of tasks?
             panic!("Cannot schedule future when future already running");
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<ParquetData, String>>();
         self.pipe = Some(rx);
 
-        async fn inner<F>(
-            future: F,
+        async fn inner(
+            future: DataFuture,
             ctx: egui::Context,
-            tx: tokio::sync::oneshot::Sender<F::Output>,
-        ) where
-            F: Future<Output = Result<ParquetData, String>> + Send,
-        {
+            tx: tokio::sync::oneshot::Sender<DataResult>,
+        ) {
             let data = future.await;
             let _result = tx.send(data);
             ctx.request_repaint();
         }
 
-        self.runtime.spawn(inner::<F>(future, ctx.clone(), tx));
+        self.runtime.spawn(inner(future, ctx.clone(), tx));
     }
 }
 
@@ -112,11 +115,13 @@ impl eframe::App for ParqBenchApp {
         // Frame setup. Check if various interactions are in progress and resolve them
         //////////
 
+        self.check_popover(ctx);
+
         if !ctx.input().raw.dropped_files.is_empty() {
             // FIXME: unsafe unwraps
             let file: egui::DroppedFile = ctx.input().raw.dropped_files.last().unwrap().clone();
             let filename = file.path.unwrap().to_str().unwrap().to_string();
-            self.run_data_future(ParquetData::load(filename), ctx);
+            self.run_data_future(Box::new(Box::pin(ParquetData::load(filename))), ctx);
         }
 
         //////////
@@ -145,13 +150,23 @@ impl eframe::App for ParqBenchApp {
                     });
 
                     if ui.button("Open...").clicked() {
-                        let filename = self.runtime.block_on(file_dialog());
-                        self.run_data_future(ParquetData::load(filename), ctx);
+                        if let Ok(filename) = self.runtime.block_on(file_dialog()) {
+                            self.run_data_future(
+                                Box::new(Box::pin(ParquetData::load(filename))),
+                                ctx,
+                            );
+                        }
+                        ui.close_menu();
+                    }
+
+                    if ui.button("Settings...").clicked() {
+                        // FIXME: need to manage potential for multiple popovers
+                        self.popover = Some(Box::new(Settings {}));
                         ui.close_menu();
                     }
 
                     if ui.button("Quit").clicked() {
-                        frame.quit();
+                        frame.close();
                     }
                 });
             });
@@ -166,15 +181,14 @@ impl eframe::App for ParqBenchApp {
                         let filters = self.query_pane.render(ui);
                         if let Some((filename, filters)) = filters {
                             self.run_data_future(
-                                ParquetData::load_with_query(filename, filters),
+                                Box::new(Box::pin(ParquetData::load_with_query(filename, filters))),
                                 ctx,
                             );
                         }
                     });
 
-                    ui.collapsing("Settings", |ui| {
-                        ctx.settings_ui(ui);
-                    });
+                    // TODO
+                    // ui.collapsing("Schema")
                 });
             });
 
@@ -200,14 +214,12 @@ impl eframe::App for ParqBenchApp {
                 };
 
                 if let Some(filters) = filters {
-                    self.run_data_future(
-                        self.table.as_ref().clone().unwrap().sort(Some(filters)),
-                        ui.ctx(),
-                    )
+                    let future = self.table.as_ref().clone().unwrap().sort(Some(filters));
+                    self.run_data_future(Box::new(Box::pin(future)), ctx);
                 }
             });
 
-            if self.data_pending() {
+            if self.check_data_pending() {
                 ui.set_enabled(false);
                 if self.table.is_none() {
                     ui.centered_and_justified(|ui| {
