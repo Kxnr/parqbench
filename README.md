@@ -9,7 +9,7 @@ A simple, cross-platform, utility for viewing parquet files, build on egui and a
 
 - [ ] load partitioned dataset
 - [ ] tab layout/tree
-- [ ] add controls and metadata to side panels
+- [x] add controls and metadata to side panels
 - [ ] parse pandas format metadata
 - [x] open with hooks (cmd line args)
 - [ ] allow configuration of layout

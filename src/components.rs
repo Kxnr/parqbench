@@ -1,28 +1,46 @@
+use std::future::Future;
 use crate::data::{DataFilters, ParquetData, SortState};
 use datafusion::arrow::util::display::array_value_to_string;
 use egui::{Response, Ui, WidgetText};
 use egui_extras::{Size, TableBuilder};
 use rfd::AsyncFileDialog;
-use tracing_subscriber::fmt::init;
+use crate::TableName;
 
-struct QueryPane {
+type DataFuture = dyn Future<Output = Result<ParquetData, String>> + Send + 'static;
+
+pub struct QueryPane {
     filename: String,
-    table_name: String,
+    table_name: TableName,
     query: String,
 }
 
 impl QueryPane {
-    fn new(data: ParquetData) -> Self {
-        todo!()
+    pub fn new(filename: Option<String>, filters: DataFilters) -> Self {
+        Self {filename: filename.unwrap_or_default(),
+              query: filters.query.unwrap_or_default(),
+              table_name: filters.table_name}
     }
 
-    fn render(&mut self, ui: &mut Ui) {
-        // how to cache fields?
-        // table name
-        // column
-        // sort direction
-        // query
-        // load/refresh button
+    pub fn render(&mut self, ui: &mut Ui) -> Option<(String, DataFilters)> {
+        ui.label("Filename:".to_string());
+        ui.text_edit_singleline(&mut self.filename);
+
+        ui.label("Table Name:".to_string());
+        ui.text_edit_singleline(&mut self.table_name.to_string());
+
+        ui.label("Query:".to_string());
+        ui.text_edit_singleline(&mut self.query);
+
+        let submit = ui.button("Apply");
+        if submit.clicked() {
+            let filename = shellexpand::full(&self.filename);
+            match filename {
+                Ok(filename) => Some((filename.to_string(), DataFilters {query: Some(self.query.clone()), table_name:  self.table_name.clone(), ..Default::default()})),
+                Err(_) => None
+            }
+        } else {
+            None
+        }
     }
 }
 

@@ -38,33 +38,31 @@ fn main() {
     eframe::run_native(
         "ParqBench",
         options,
-        Box::new(
-            move |cc| {
-                // layout::ParqBenchApp::new_with_future(ParquetData::load_with_query())
+        Box::new(move |cc| {
+            // layout::ParqBenchApp::new_with_future(ParquetData::load_with_query())
 
-                Box::new(match args.filename {
-                    None => layout::ParqBenchApp::new(cc),
-                    Some(filename) => {
-                        match args.query {
-                            Some(_) => {
-                                let filters = DataFilters {
-                                    query: args.query,
-                                    // FIXME: this doesn't grab struct default
-                                    table_name: args.table_name.unwrap_or_default(),
-                                    ..Default::default()
-                                };
-                                dbg!(filters.clone());
-                                let future = ParquetData::load_with_query(filename, filters);
-                                layout::ParqBenchApp::new_with_future(cc, future)
-                            }
-                            None => {
-                                let future = ParquetData::load(filename);
-                                layout::ParqBenchApp::new_with_future(cc, future)
-                            }
+            Box::new(match args.filename {
+                None => layout::ParqBenchApp::new(cc),
+                Some(filename) => {
+                    match args.query {
+                        Some(_) => {
+                            let filters = DataFilters {
+                                query: args.query,
+                                // FIXME: this doesn't grab struct default
+                                table_name: args.table_name.unwrap_or_default(),
+                                ..Default::default()
+                            };
+                            dbg!(filters.clone());
+                            let future = ParquetData::load_with_query(filename, filters);
+                            layout::ParqBenchApp::new_with_future(cc, future)
+                        }
+                        None => {
+                            let future = ParquetData::load(filename);
+                            layout::ParqBenchApp::new_with_future(cc, future)
                         }
                     }
-                })
-            },
-        ),
+                }
+            })
+        }),
     );
 }

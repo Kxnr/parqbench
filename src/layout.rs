@@ -4,16 +4,17 @@ use egui::{Ui, WidgetText};
 use std::future::Future;
 use std::marker::Send;
 
-use crate::components::{file_dialog, SelectionDepth};
+use crate::components::{file_dialog, QueryPane};
 use core::default::Default;
 use f32;
 use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
 
-use crate::data::{DataFilters, ParquetData, SortState};
+use crate::data::{DataFilters, ParquetData};
 
 pub struct ParqBenchApp {
     pub table: Arc<Option<ParquetData>>,
+    pub query_pane: QueryPane,
     // error: Err(String) TODO
     runtime: tokio::runtime::Runtime,
     pipe: Option<tokio::sync::oneshot::Receiver<Result<ParquetData, String>>>,
@@ -23,6 +24,7 @@ impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
             table: Arc::new(None),
+            query_pane: QueryPane::new(None, DataFilters::default()),
             runtime: tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(1)
                 .enable_all()
@@ -57,6 +59,7 @@ impl ParqBenchApp {
             Some(output) => match output.try_recv() {
                 Ok(data) => match data {
                     Ok(data) => {
+                        self.query_pane = QueryPane::new(Some(data.filename.clone()), data.filters.clone());
                         self.table = Arc::new(Some(data));
                         self.pipe = None;
                         false
@@ -153,18 +156,23 @@ impl eframe::App for ParqBenchApp {
             });
         });
 
-        egui::SidePanel::left("side_panel").resizable(true).show(ctx, |ui| {
-            // TODO: collapsing headers
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                // ui.collapsing("Query" |ui| {
-                //     todo!();
-                // });
+        egui::SidePanel::left("side_panel")
+            .resizable(true)
+            .show(ctx, |ui| {
+                // TODO: collapsing headers
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.collapsing("Query", |ui| {
+                        let filters = self.query_pane.render(ui);
+                        if let Some((filename, filters)) = filters {
+                            self.run_data_future(ParquetData::load_with_query(filename, filters), ctx) ;
+                        }
+                    });
 
-                ui.collapsing("Settings", |ui| {
-                    ctx.settings_ui(ui);
+                    ui.collapsing("Settings", |ui| {
+                        ctx.settings_ui(ui);
+                    });
                 });
             });
-        });
 
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
