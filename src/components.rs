@@ -3,7 +3,12 @@ use crate::TableName;
 use datafusion::arrow::util::display::array_value_to_string;
 use egui::{Context, Response, Ui, WidgetText};
 use egui_extras::{Size, TableBuilder};
+use parquet::basic::ColumnOrder;
+use parquet::file::metadata::{KeyValue, ParquetMetaData};
+use parquet::file::reader::{FileReader, SerializedFileReader};
 use rfd::AsyncFileDialog;
+use std::fs::File;
+use std::path::Path;
 
 pub trait Popover {
     fn show(&mut self, ctx: &Context) -> bool;
@@ -92,12 +97,79 @@ impl QueryPane {
     }
 }
 
-impl ParquetData {
-    pub fn render_schema(&self, ui: &mut Ui) {
-        todo!();
-        // includes df.schema() and df.metadata()
+pub struct FileMetadata {
+    info: ParquetMetaData,
+}
+
+impl FileMetadata {
+    pub fn from_filename(filename: &str) -> Result<Self, String> {
+        // while possible, digging this out of datafusion is immensely painful.
+        // reading with parquet is mildly less so.
+        let path = Path::new(filename);
+        if let Ok(file) = File::open(&path) {
+            let reader = SerializedFileReader::new(file).unwrap();
+            Ok(Self {
+                info: reader.metadata().to_owned(),
+            })
+        } else {
+            Err("Could not read metadata from file.".to_string())
+        }
     }
 
+    // Lots of metadata available here, if anything else is of interest.
+
+    pub fn render_metadata(&self, ui: &mut Ui) {
+        let file_metadata = self.info.file_metadata();
+        ui.label(format!("version: {}", file_metadata.version()));
+        ui.label(format!(
+            "created by: {}",
+            file_metadata.created_by().unwrap_or("unknown")
+        ));
+        ui.label(format!("row groups: {}", self.info.num_row_groups()));
+        ui.label(format!("rows: {}", file_metadata.num_rows()));
+        ui.label(format!(
+            "columns: {}",
+            file_metadata.schema_descr().num_columns()
+        ));
+        if let Some(key_value) = file_metadata.key_value_metadata() {
+            for KeyValue {
+                key: key,
+                value: value,
+            } in key_value
+            {
+                ui.label(format!(
+                    "{}: {}",
+                    key,
+                    value.to_owned().unwrap_or("-".to_string())
+                ));
+            }
+        }
+    }
+
+    pub fn render_schema(&self, ui: &mut Ui) {
+        let file_metadata = self.info.file_metadata();
+        for (idx, field) in file_metadata.schema_descr().columns().iter().enumerate() {
+            ui.collapsing(field.name(), |ui| {
+                let field_type = field.self_type();
+                let field_type = if field_type.is_primitive() {
+                    format!("{}", field_type.get_physical_type())
+                } else {
+                    format!("{}", field.converted_type())
+                };
+                ui.label(format!("type: {}", field_type));
+                ui.label(format!(
+                    "sort_order: {}",
+                    match file_metadata.column_order(idx) {
+                        ColumnOrder::TYPE_DEFINED_ORDER(sort_order) => format!("{}", sort_order),
+                        _ => "undefined".to_string(),
+                    }
+                ));
+            });
+        }
+    }
+}
+
+impl ParquetData {
     pub fn render_table(&self, ui: &mut Ui) -> Option<DataFilters> {
         let style = &ui.style().clone();
 

@@ -1,6 +1,6 @@
 use eframe;
 
-use crate::components::{file_dialog, Error, Popover, QueryPane, Settings};
+use crate::components::{file_dialog, Error, FileMetadata, Popover, QueryPane, Settings};
 use core::default::Default;
 use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
@@ -10,6 +10,7 @@ use crate::data::{DataFilters, DataFuture, DataResult, ParquetData};
 pub struct ParqBenchApp {
     pub table: Arc<Option<ParquetData>>,
     pub query_pane: QueryPane,
+    pub metadata: Option<FileMetadata>,
     pub popover: Option<Box<dyn Popover>>,
 
     runtime: tokio::runtime::Runtime,
@@ -28,6 +29,7 @@ impl Default for ParqBenchApp {
                 .unwrap(),
             pipe: None,
             popover: None,
+            metadata: None,
         }
     }
 }
@@ -63,6 +65,13 @@ impl ParqBenchApp {
                     Ok(data) => {
                         self.query_pane =
                             QueryPane::new(Some(data.filename.clone()), data.filters.clone());
+                        self.metadata = if let Ok(metadata) =
+                            FileMetadata::from_filename(data.filename.as_str())
+                        {
+                            Some(metadata)
+                        } else {
+                            None
+                        };
                         self.table = Arc::new(Some(data));
                         self.pipe = None;
                         false
@@ -186,9 +195,16 @@ impl eframe::App for ParqBenchApp {
                             );
                         }
                     });
-
-                    // TODO
-                    // ui.collapsing("Schema")
+                    if let Some(metadata) = &self.metadata {
+                        ui.collapsing("Metadata", |ui| {
+                            metadata.render_metadata(ui);
+                        });
+                    }
+                    if let Some(metadata) = &self.metadata {
+                        ui.collapsing("Schema", |ui| {
+                            metadata.render_schema(ui);
+                        });
+                    }
                 });
             });
 

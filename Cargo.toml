@@ -17,6 +17,7 @@ tokio = { version = "1.21.1", features = ["rt", "sync"] }
 tracing-subscriber = "0.3"
 structopt = "~0.3"
 shellexpand = "~2"
+parquet = "~23.0"
 
 [features]
 default = []

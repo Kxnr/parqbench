@@ -6,8 +6,6 @@ pub mod data;
 pub mod layout;
 
 use crate::data::{DataFilters, ParquetData, TableName};
-use std::env;
-use std::process::exit;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]

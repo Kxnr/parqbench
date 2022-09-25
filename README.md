@@ -7,6 +7,7 @@ A simple, cross-platform, utility for viewing parquet files, build on egui and a
 
 ## TODO List
 
+- [ ] CI for builds/releases
 - [ ] load partitioned dataset
 - [ ] tab layout/tree
 - [x] add controls and metadata to side panels
@@ -14,12 +15,12 @@ A simple, cross-platform, utility for viewing parquet files, build on egui and a
 - [x] open with hooks (cmd line args)
 - [x] notification for errors
 - [ ] support all filetypes supported by datafusion
-- [ ] CI for builds/releases
 - [x] Update datafusion and egui/eframe
 - [ ] Auto resize columns
 - [ ] revisit &str vs String usages
-- [ ] query builder Ui
+- [ ] Ui for basic query operations
 - [ ] source configuration in query pane
+- [x] rich metadata with parquet crate
 
 ## Installation
 

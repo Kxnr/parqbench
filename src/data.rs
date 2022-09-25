@@ -1,4 +1,5 @@
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::common::DFSchema;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::col;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
@@ -154,5 +155,9 @@ impl ParquetData {
             }
             None => Ok(ParquetData { filters, ..self }),
         }
+    }
+
+    pub fn metadata(&self) -> &DFSchema {
+        self.dataframe.schema()
     }
 }

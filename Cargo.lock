@@ -144,6 +144,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrow"
+version = "23.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fedc767fbaa36ea50f086215f54f1a007d22046fc4754b0448c657bcbe9f8413"
+dependencies = [
+ "ahash 0.8.0",
+ "arrow-buffer",
+ "bitflags",
+ "chrono",
+ "flatbuffers",
+ "half",
+ "hashbrown",
+ "indexmap",
+ "lazy_static",
+ "lexical-core",
+ "multiversion",
+ "num",
+ "regex",
+ "regex-syntax",
+]
+
+[[package]]
+name = "arrow-buffer"
+version = "23.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d290050c6e12a81a24ad08525cef2203c4156a6350f75508d49885d677e88ea9"
+dependencies = [
+ "half",
+ "num",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -679,7 +711,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2aca80caa2b0f7fdf267799b8895ac8b6341ea879db6b1e2d361ec49b47bc676"
 dependencies = [
  "ahash 0.8.0",
- "arrow",
+ "arrow 22.0.0",
  "async-trait",
  "bytes",
  "chrono",
@@ -699,7 +731,7 @@ dependencies = [
  "object_store",
  "ordered-float 3.0.0",
  "parking_lot",
- "parquet",
+ "parquet 22.0.0",
  "paste",
  "pin-project-lite",
  "rand",
@@ -718,10 +750,10 @@ version = "12.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7721fd550f6a28ad7235b62462aa51e9a43b08f8346d5cbe4d61f1e83f5df511"
 dependencies = [
- "arrow",
+ "arrow 22.0.0",
  "object_store",
  "ordered-float 3.0.0",
- "parquet",
+ "parquet 22.0.0",
  "serde_json",
  "sqlparser",
 ]
@@ -733,7 +765,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d81255d043dc594c0ded6240e8a9be6ce8d7c22777a5093357cdb97af3d29ce"
 dependencies = [
  "ahash 0.8.0",
- "arrow",
+ "arrow 22.0.0",
  "datafusion-common",
  "sqlparser",
 ]
@@ -744,7 +776,7 @@ version = "12.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71b39f8c75163691fff72b4a71816ad5a912e7c6963ee55f29ed1910b5a6993f"
 dependencies = [
- "arrow",
+ "arrow 22.0.0",
  "async-trait",
  "chrono",
  "datafusion-common",
@@ -761,7 +793,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "109c4138220a109feafb63bf05418b86b17a42ece4bf047c38e4fd417572a9f7"
 dependencies = [
  "ahash 0.8.0",
- "arrow",
+ "arrow 22.0.0",
  "blake2",
  "blake3",
  "chrono",
@@ -785,7 +817,7 @@ version = "12.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87a178fc0fd7693d9c9f608f7b605823eb982c6731ede0cccd99e2319cacabbc"
 dependencies = [
- "arrow",
+ "arrow 22.0.0",
  "datafusion-common",
  "paste",
  "rand",
@@ -798,7 +830,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "148cb56e7635faff3b16019393c49b988188c3fdadd1ca90eadb322a80aa1128"
 dependencies = [
  "ahash 0.8.0",
- "arrow",
+ "arrow 22.0.0",
  "datafusion-common",
  "datafusion-expr",
  "hashbrown",
@@ -1112,11 +1144,10 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.0.1"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fc25a87fa4fd2094bffb06925852034d90a17f0d1e05197d4956d3555752191"
+checksum = "a9c384f161156f5260c24a097c56119f9be8c798586aecc13afbcbe7b7e26bf8"
 dependencies = [
- "matches",
  "percent-encoding",
 ]
 
@@ -1447,6 +1478,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad6a9459c9c30b177b925162351f97e7d967c7ea8bab3b8352805327daf45554"
 dependencies = [
  "crunchy",
+ "num-traits",
 ]
 
 [[package]]
@@ -1490,11 +1522,10 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
 name = "idna"
-version = "0.2.3"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "418a0a6fab821475f634efe3ccc45c013f742efe03d853e8d3355d5cb850ecf8"
+checksum = "e14ddfc70884202db2244c223200c204c2bda1bc6e0998d11b5e024d657209e6"
 dependencies = [
- "matches",
  "unicode-bidi",
  "unicode-normalization",
 ]
@@ -1526,6 +1557,12 @@ name = "integer-encoding"
 version = "1.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48dc51180a9b377fd75814d0cc02199c20f8e99433d6762f650d39cdbbd3b56f"
+
+[[package]]
+name = "integer-encoding"
+version = "3.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8bb03732005da905c88227371639bf1ad885cc712789c011c31c5fb3ab3ccf02"
 
 [[package]]
 name = "itertools"
@@ -1679,6 +1716,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "292a948cd991e376cf75541fe5b97a1081d713c618b4f1b9500f8844e49eb565"
+
+[[package]]
 name = "lock_api"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1725,12 +1768,6 @@ checksum = "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb"
 dependencies = [
  "libc",
 ]
-
-[[package]]
-name = "matches"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 
 [[package]]
 name = "md-5"
@@ -2052,6 +2089,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a64b1ec5cda2586e284722486d802acf1f7dbdc623e2bfc57e65ca1cd099290"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -2219,6 +2257,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_extras",
+ "parquet 23.0.0",
  "rfd",
  "shellexpand",
  "structopt",
@@ -2233,7 +2272,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "474c423be6f10921adab3b94b42ec7fe87c1b87e1360dee150976caee444224f"
 dependencies = [
  "ahash 0.8.0",
- "arrow",
+ "arrow 22.0.0",
  "base64",
  "brotli",
  "bytes",
@@ -2248,8 +2287,32 @@ dependencies = [
  "rand",
  "seq-macro",
  "snap",
- "thrift",
+ "thrift 0.13.0",
  "tokio",
+ "zstd",
+]
+
+[[package]]
+name = "parquet"
+version = "23.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc38abcd826e52e80a45abe46707745e6d12d31031a9b11c2eab112def7efe71"
+dependencies = [
+ "ahash 0.8.0",
+ "arrow 23.0.0",
+ "base64",
+ "brotli",
+ "bytes",
+ "chrono",
+ "flate2",
+ "hashbrown",
+ "lz4",
+ "num",
+ "num-bigint",
+ "rand",
+ "seq-macro",
+ "snap",
+ "thrift 0.16.0",
  "zstd",
 ]
 
@@ -2259,7 +2322,7 @@ version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f0c06cdcd5460967c485f9c40a821746f5955ad81990533c7fae95dbd9bc0b5"
 dependencies = [
- "thrift",
+ "thrift 0.13.0",
 ]
 
 [[package]]
@@ -2270,9 +2333,9 @@ checksum = "0c520e05135d6e763148b6426a837e239041653ba7becd2e538c076c738025fc"
 
 [[package]]
 name = "percent-encoding"
-version = "2.1.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
+checksum = "478c572c3d73181ff3c2539045f6eb99e5491218eae919370993b890cdbdd98e"
 
 [[package]]
 name = "pin-project-lite"
@@ -2906,10 +2969,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c6d965454947cc7266d22716ebfd07b18d84ebaf35eec558586bbb2a8cb6b5b"
 dependencies = [
  "byteorder",
- "integer-encoding",
+ "integer-encoding 1.1.7",
  "log",
  "ordered-float 1.1.1",
  "threadpool",
+]
+
+[[package]]
+name = "thrift"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09678c4cdbb4eed72e18b7c2af1329c69825ed16fcbac62d083fc3e2b0590ff0"
+dependencies = [
+ "byteorder",
+ "integer-encoding 3.0.4",
+ "ordered-float 1.1.1",
 ]
 
 [[package]]
@@ -3113,13 +3187,12 @@ checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
 
 [[package]]
 name = "url"
-version = "2.2.2"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a507c383b2d33b5fc35d1861e77e6b383d158b2da5e14fe51b83dfedf6fd578c"
+checksum = "0d68c799ae75762b8c3fe375feb6600ef5602c883c5d21eb51c09f22b83c4643"
 dependencies = [
  "form_urlencoded",
  "idna",
- "matches",
  "percent-encoding",
 ]
 
