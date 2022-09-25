@@ -59,7 +59,8 @@ impl ParqBenchApp {
             Some(output) => match output.try_recv() {
                 Ok(data) => match data {
                     Ok(data) => {
-                        self.query_pane = QueryPane::new(Some(data.filename.clone()), data.filters.clone());
+                        self.query_pane =
+                            QueryPane::new(Some(data.filename.clone()), data.filters.clone());
                         self.table = Arc::new(Some(data));
                         self.pipe = None;
                         false
@@ -164,7 +165,10 @@ impl eframe::App for ParqBenchApp {
                     ui.collapsing("Query", |ui| {
                         let filters = self.query_pane.render(ui);
                         if let Some((filename, filters)) = filters {
-                            self.run_data_future(ParquetData::load_with_query(filename, filters), ctx) ;
+                            self.run_data_future(
+                                ParquetData::load_with_query(filename, filters),
+                                ctx,
+                            );
                         }
                     });
 

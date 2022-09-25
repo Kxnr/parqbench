@@ -1,10 +1,10 @@
-use std::future::Future;
 use crate::data::{DataFilters, ParquetData, SortState};
+use crate::TableName;
 use datafusion::arrow::util::display::array_value_to_string;
 use egui::{Response, Ui, WidgetText};
 use egui_extras::{Size, TableBuilder};
 use rfd::AsyncFileDialog;
-use crate::TableName;
+use std::future::Future;
 
 type DataFuture = dyn Future<Output = Result<ParquetData, String>> + Send + 'static;
 
@@ -16,9 +16,11 @@ pub struct QueryPane {
 
 impl QueryPane {
     pub fn new(filename: Option<String>, filters: DataFilters) -> Self {
-        Self {filename: filename.unwrap_or_default(),
-              query: filters.query.unwrap_or_default(),
-              table_name: filters.table_name}
+        Self {
+            filename: filename.unwrap_or_default(),
+            query: filters.query.unwrap_or_default(),
+            table_name: filters.table_name,
+        }
     }
 
     pub fn render(&mut self, ui: &mut Ui) -> Option<(String, DataFilters)> {
@@ -35,8 +37,15 @@ impl QueryPane {
         if submit.clicked() {
             let filename = shellexpand::full(&self.filename);
             match filename {
-                Ok(filename) => Some((filename.to_string(), DataFilters {query: Some(self.query.clone()), table_name:  self.table_name.clone(), ..Default::default()})),
-                Err(_) => None
+                Ok(filename) => Some((
+                    filename.to_string(),
+                    DataFilters {
+                        query: Some(self.query.clone()),
+                        table_name: self.table_name.clone(),
+                        ..Default::default()
+                    },
+                )),
+                Err(_) => None,
             }
         } else {
             None
