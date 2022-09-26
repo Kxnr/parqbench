@@ -38,22 +38,11 @@ impl ToString for TableName {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct DataFilters {
     pub sort: Option<SortState>,
     pub table_name: TableName,
     pub query: Option<String>,
-}
-
-// TODO: serialize this for the query pane
-impl Default for DataFilters {
-    fn default() -> Self {
-        Self {
-            sort: None,
-            table_name: TableName::default(),
-            query: None,
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -64,7 +53,7 @@ pub struct ParquetData {
     dataframe: Arc<DataFrame>,
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum SortState {
     NotSorted(String),
     Ascending(String),
@@ -115,7 +104,7 @@ impl ParquetData {
                             filename: filename.to_owned(),
                             data,
                             dataframe: df,
-                            filters: filters,
+                            filters,
                         };
                         data.sort(None).await
                     }

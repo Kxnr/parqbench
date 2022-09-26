@@ -78,7 +78,7 @@ impl QueryPane {
         ui.text_edit_singleline(&mut self.query);
 
         let submit = ui.button("Apply");
-        if submit.clicked() && self.query.len() > 0 {
+        if submit.clicked() && !self.query.is_empty() {
             let filename = shellexpand::full(&self.filename);
             match filename {
                 Ok(filename) => Some((
@@ -136,7 +136,7 @@ impl FileMetadata {
                 ui.label(format!(
                     "{}: {}",
                     key,
-                    value.to_owned().unwrap_or("-".to_string())
+                    value.to_owned().unwrap_or_else(|| "-".to_string())
                 ));
             }
         }
@@ -337,7 +337,7 @@ pub async fn file_dialog() -> Result<String, String> {
         file.path()
             .to_str()
             .map(|s| s.to_string())
-            .ok_or("Invalid characters in Path.".to_string())
+            .ok_or_else(|| "Invalid characters in Path.".to_string())
     } else {
         Err("No file loaded.".to_string())
     }
