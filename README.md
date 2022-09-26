@@ -24,7 +24,7 @@ A simple, cross-platform, utility for viewing parquet files, build on egui and a
 
 ## Installation
 
-Generic, portable binaries for Windows and Linux are available on the [releases](https://github.com/Kxnr/parqbench/releases).
+Generic, portable binaries for Windows and Linux are available on the [releases page](https://github.com/Kxnr/parqbench/releases).
 
 ParqBench is tested for Linux (Manjaro 22.0, kernel 5.15.60) and Windows 10 (21H2). Releases are built with:
 
