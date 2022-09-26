@@ -132,11 +132,7 @@ impl FileMetadata {
             file_metadata.schema_descr().num_columns()
         ));
         if let Some(key_value) = file_metadata.key_value_metadata() {
-            for KeyValue {
-                key: key,
-                value: value,
-            } in key_value
-            {
+            for KeyValue { key, value } in key_value {
                 ui.label(format!(
                     "{}: {}",
                     key,
