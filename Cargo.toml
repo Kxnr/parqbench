@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Connor Keane <connor.keane@kxnr.me"]
-rust-version = "1.62"
+rust-version = "1.64"
 description = "A utility for viewing parquet files built on egui."
 
 [dependencies]
