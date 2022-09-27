@@ -330,10 +330,9 @@ pub async fn file_dialog() -> Result<String, String> {
 
     if let Some(file) = file {
         file.inner()
-            .as_os_str()
-            .to_owned()
-            .into_string()
-            .map_err(|_err| "Could not parse path.".to_string())
+            .to_str()
+            .ok_or_else(|| "Could not parse path.".to_string())
+            .map(|s| s.to_string())
     } else {
         Err("No file loaded.".to_string())
     }
