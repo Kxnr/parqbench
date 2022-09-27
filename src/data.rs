@@ -66,6 +66,10 @@ fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
 
 impl ParquetData {
     pub async fn load(filename: String) -> Result<Self, String> {
+        let filename = shellexpand::full(&filename)
+            .map_err(|err| err.to_string())?
+            .to_string();
+
         let ctx = SessionContext::new();
         match ctx
             .read_parquet(&filename, ParquetReadOptions::default())
@@ -81,11 +85,15 @@ impl ParquetData {
                     filters: DataFilters::default(),
                 })
             }
-            Err(_) => Err("Could not load file.".to_string()),
+            Err(msg) => Err(format!("{}", msg)),
         }
     }
 
     pub async fn load_with_query(filename: String, filters: DataFilters) -> Result<Self, String> {
+        let filename = shellexpand::full(&filename)
+            .map_err(|err| err.to_string())?
+            .to_string();
+
         let ctx = SessionContext::new();
         ctx.register_parquet(
             filters.table_name.to_string().as_str(),

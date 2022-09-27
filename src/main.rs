@@ -37,8 +37,6 @@ fn main() {
         "ParqBench",
         options,
         Box::new(move |cc| {
-            // layout::ParqBenchApp::new_with_future(ParquetData::load_with_query())
-
             Box::new(match args.filename {
                 None => layout::ParqBenchApp::new(cc),
                 Some(filename) => {

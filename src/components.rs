@@ -79,18 +79,14 @@ impl QueryPane {
 
         let submit = ui.button("Apply");
         if submit.clicked() && !self.query.is_empty() {
-            let filename = shellexpand::full(&self.filename);
-            match filename {
-                Ok(filename) => Some((
-                    filename.to_string(),
-                    DataFilters {
-                        query: Some(self.query.clone()),
-                        table_name: self.table_name.clone(),
-                        ..Default::default()
-                    },
-                )),
-                Err(_) => None,
-            }
+            Some((
+                self.filename.clone(),
+                DataFilters {
+                    query: Some(self.query.clone()),
+                    table_name: self.table_name.clone(),
+                    ..Default::default()
+                },
+            ))
         } else {
             None
         }
@@ -332,12 +328,12 @@ impl ExtraInteractions for Ui {
 pub async fn file_dialog() -> Result<String, String> {
     let file = AsyncFileDialog::new().pick_file().await;
 
-    // FIXME: unsafe unwraps
     if let Some(file) = file {
-        file.path()
-            .to_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| "Invalid characters in Path.".to_string())
+        file.inner()
+            .as_os_str()
+            .to_owned()
+            .into_string()
+            .map_err(|_err| "Could not parse path.".to_string())
     } else {
         Err("No file loaded.".to_string())
     }
