@@ -70,6 +70,8 @@ impl ParquetData {
             .map_err(|err| err.to_string())?
             .to_string();
 
+        dbg!(&filename);
+
         let ctx = SessionContext::new();
         match ctx
             .read_parquet(&filename, ParquetReadOptions::default())
@@ -94,10 +96,12 @@ impl ParquetData {
             .map_err(|err| err.to_string())?
             .to_string();
 
+        dbg!(&filename);
+
         let ctx = SessionContext::new();
         ctx.register_parquet(
             filters.table_name.to_string().as_str(),
-            filename.as_str(),
+            &filename,
             ParquetReadOptions::default(),
         )
         .await
