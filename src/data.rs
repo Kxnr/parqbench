@@ -7,9 +7,22 @@ use std::ffi::IntoStringError;
 use std::future::Future;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::path::Path;
+use std::ffi::OsStr;
 
 pub type DataResult = Result<ParquetData, String>;
 pub type DataFuture = Box<dyn Future<Output = DataResult> + Unpin + Send + 'static>;
+
+fn get_read_options(filename: &str) -> Option<ParquetReadOptions<'_>> {
+    Path::new(filename).extension().and_then(OsStr::to_str).map(|s| {
+        ParquetReadOptions {file_extension: s, ..Default::default()}
+    })
+}
+
+// fn normalize_path(filename: &str) -> Option<String> {
+//     Path::new(filename).canonicalize().ok()?.to_str().map(|s| format!("file:///{}", s).to_string())
+//     // Path::new(filename).canonicalize().ok()?.to_str().map(|s| s.to_string())
+// }
 
 #[derive(Debug, Clone)]
 pub struct TableName {
@@ -74,7 +87,7 @@ impl ParquetData {
 
         let ctx = SessionContext::new();
         match ctx
-            .read_parquet(&filename, ParquetReadOptions::default())
+            .read_parquet(&filename, get_read_options(&filename).ok_or("Could not set read options. Does this file have a valid extension?".to_string())?)
             .await
         {
             Ok(df) => {
@@ -102,7 +115,7 @@ impl ParquetData {
         ctx.register_parquet(
             filters.table_name.to_string().as_str(),
             &filename,
-            ParquetReadOptions::default(),
+            get_read_options(&filename).ok_or("Could not set read options. Does this file have a valid extension?".to_string())?,
         )
         .await
         .ok();

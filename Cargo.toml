@@ -11,7 +11,7 @@ description = "A utility for viewing parquet files built on egui."
 egui = "~0.19"
 egui_extras = "~0.19"
 eframe = { version = "~0.19", features = ["persistence"] }
-datafusion = "~8"
+datafusion = "~12"
 rfd = { version ="~0.10", features = ["file-handle-inner"] }
 tokio = { version = "1.21.1", features = ["rt", "sync"] }
 tracing-subscriber = "0.3"
