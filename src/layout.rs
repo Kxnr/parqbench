@@ -85,6 +85,7 @@ impl ParqBenchApp {
                 Err(e) => match e {
                     TryRecvError::Empty => true,
                     TryRecvError::Closed => {
+                        self.pipe = None;
                         self.popover = Some(Box::new(Error {
                             message: "Data operation terminated without response.".to_string(),
                         }));

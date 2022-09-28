@@ -54,7 +54,7 @@ impl Popover for Error {
 
 pub struct QueryPane {
     filename: String,
-    table_name: TableName,
+    table_name: String,
     query: String,
 }
 
@@ -63,7 +63,7 @@ impl QueryPane {
         Self {
             filename: filename.unwrap_or_default(),
             query: filters.query.unwrap_or_default(),
-            table_name: filters.table_name,
+            table_name: filters.table_name.to_string(),
         }
     }
 
@@ -72,7 +72,7 @@ impl QueryPane {
         ui.text_edit_singleline(&mut self.filename);
 
         ui.label("Table Name:".to_string());
-        ui.text_edit_singleline(&mut self.table_name.to_string());
+        ui.text_edit_singleline(&mut self.table_name);
 
         ui.label("Query:".to_string());
         ui.text_edit_singleline(&mut self.query);
@@ -83,7 +83,7 @@ impl QueryPane {
                 self.filename.clone(),
                 DataFilters {
                     query: Some(self.query.clone()),
-                    table_name: self.table_name.clone(),
+                    table_name: TableName {name: self.table_name.clone() },
                     ..Default::default()
                 },
             ))
