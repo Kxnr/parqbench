@@ -35,4 +35,4 @@ The builds are self-contained, portable, executables. The resulting binaries are
 
 ## Contribution
 
-Please contribute! I'm still learning Rust and this is my first 'major' project using it, so any and all feedback is welcome.
+Please contribute! I'm learning Rust and this is my first 'major' project using it, so any and all feedback is welcome. I'm working on this intermittently and will review PRs/comments/issues on a roughly weekly basis.
