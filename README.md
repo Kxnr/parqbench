@@ -32,3 +32,7 @@ ParqBench is tested for Linux (Manjaro 22.0, kernel 5.15.60) and Windows 10 (21H
 `cargo build --release --target x86_64-unknown-linux-gnu`
 
 The builds are self-contained, portable, executables. The resulting binaries are placed in `target/<target>`.
+
+## Contribution
+
+Please contribute! I'm still learning Rust and this is my first 'major' project using it, so any and all feedback is welcome.
