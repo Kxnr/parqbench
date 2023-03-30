@@ -238,7 +238,6 @@ impl ParquetData {
                                 // have conversion times on the order of ns.
                                 ui.with_layout(
 
-
                                     if is_integer(data_col.data_type()) {
                                         egui::Layout::centered_and_justified(egui::Direction::LeftToRight)
                                     } else if is_float(data_col.data_type()) {
@@ -247,16 +246,20 @@ impl ParquetData {
                                         egui::Layout::left_to_right(egui::Align::Center)
                                     }.with_main_wrap(false),
 
-                                    /*
-                                    match data_col.data_type() {
-                                        DataType::Float64 | DataType::Float32 => egui::Layout::right_to_left(egui::Align::Center).with_main_wrap(false),
-                                        _ => egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(false),
-                                    },
-                                    */
-
                                     |ui| {
-                                        let value =
+                                        let value: String =
                                             array_value_to_string(data_col, row_index).unwrap();
+                                        
+                                        /*
+                                        if is_float(data_col.data_type()) {
+                                            // convert string to floating point number
+                                            value = match value.parse::<f64>() {
+                                                Ok(float) => format!("{float:0.4}"),
+                                                Err(_) => value,
+                                            }
+                                        }
+                                        */
+
                                         ui.label(value);
                                     },
                                 );
