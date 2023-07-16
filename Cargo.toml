@@ -16,8 +16,8 @@ rfd = { version ="~0.10", features = ["file-handle-inner"] }
 tokio = { version = "1.21.1", features = ["rt", "sync"] }
 tracing-subscriber = "0.3"
 structopt = "~0.3"
-shellexpand = "~2"
-parquet = "~23.0"
+shellexpand = "*"
+parquet = "*"
 
 [features]
 default = []
