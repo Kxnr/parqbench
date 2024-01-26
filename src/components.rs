@@ -2,13 +2,18 @@ use crate::data::{DataFilters, ParquetData, SortState};
 use crate::TableName;
 use datafusion::arrow::{util::display::array_value_to_string, datatypes::DataType};
 use egui::{Context, Response, Ui, WidgetText};
-use egui_extras::{Size, TableBuilder};
 use parquet::basic::ColumnOrder;
 use parquet::file::metadata::{KeyValue, ParquetMetaData};
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use rfd::AsyncFileDialog;
 use std::fs::File;
 use std::path::Path;
+
+use egui_extras::{
+    //Size, 
+    TableBuilder, 
+    Column,
+};
 
 pub trait Popover {
     fn show(&mut self, ctx: &Context) -> bool;
@@ -181,7 +186,7 @@ impl ParquetData {
 
         let text_height = egui::TextStyle::Body.resolve(style).size;
 
-        let initial_col_width = (ui.available_width() - style.spacing.scroll_bar_width)
+        let initial_col_width = (ui.available_width() - style.spacing.scroll.bar_width)
             / (self.data.num_columns() + 1) as f32;
 
         // stop columns from resizing to smaller than the window--remainder stops the last column
@@ -194,13 +199,18 @@ impl ParquetData {
 
         let header_height = style.spacing.interact_size.y + (2.0f32 * style.spacing.item_spacing.y);
 
+        // https://github.com/emilk/egui/issues/3680
+        let column = Column::initial(initial_col_width)
+            .at_least(min_col_width)
+            .clip(true);
+
         // FIXME: this will certainly break if there are no columns
         TableBuilder::new(ui)
             .striped(true)
             .stick_to_bottom(true)
-            .clip(true)
+            //.clip(true)
             .columns(
-                Size::initial(initial_col_width).at_least(min_col_width),
+                column,
                 self.data.num_columns(),
             )
             .resizable(true)
@@ -229,7 +239,8 @@ impl ParquetData {
                 body.rows(
                     text_height,
                     self.data.num_rows(),
-                    |row_index, mut row| {
+                    |mut row| {
+                        let row_index = row.index();
                         for data_col in self.data.columns() {
                             row.col(|ui| {
                                 // while not efficient (as noted in docs) we need to display

@@ -1,11 +1,9 @@
 use eframe;
-
-use crate::components::{file_dialog, Error, FileMetadata, Popover, QueryPane, Settings};
-use core::default::Default;
-use std::sync::Arc;
+use std::{sync::Arc, path::PathBuf};
 use tokio::sync::oneshot::error::TryRecvError;
 
 use crate::data::{DataFilters, DataFuture, DataResult, ParquetData};
+use crate::components::{file_dialog, Error, FileMetadata, Popover, QueryPane, Settings};
 
 pub struct ParqBenchApp {
     pub table: Arc<Option<ParquetData>>,
@@ -119,18 +117,25 @@ impl ParqBenchApp {
     }
 }
 
+// See 
+// https://github.com/emilk/egui/blob/master/examples/custom_window_frame/src/main.rs
+// https://rodneylab.com/trying-egui/
+
 impl eframe::App for ParqBenchApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         //////////
         // Frame setup. Check if various interactions are in progress and resolve them
         //////////
 
         self.check_popover(ctx);
 
-        if !ctx.input().raw.dropped_files.is_empty() {
+        if !ctx.input(|i| i.raw.dropped_files.is_empty()) {
             // FIXME: unsafe unwraps
-            let file: egui::DroppedFile = ctx.input().raw.dropped_files.last().unwrap().clone();
-            let filename = file.path.unwrap().to_str().unwrap().to_string();
+
+            let opt_file: Option<egui::DroppedFile> = ctx.input(|i| i.raw.dropped_files.last().cloned());
+            let opt_path: Option<PathBuf> = opt_file.and_then(|f| f.path);
+            let filename: String = opt_path.unwrap().to_str().unwrap().to_string();
+
             self.run_data_future(Box::new(Box::pin(ParquetData::load(filename))), ctx);
         }
 
@@ -176,7 +181,8 @@ impl eframe::App for ParqBenchApp {
                     }
 
                     if ui.button("Quit").clicked() {
-                        frame.close();
+                        //frame.close();
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
             });
