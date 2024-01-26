@@ -29,6 +29,9 @@ fn main() -> eframe::Result<()> {
     let args = Args::from_args();
 
     let options = eframe::NativeOptions {
+        // drag_and_drop_support: true,
+        centered: true,
+        persist_window: true,
         ..Default::default()
     };
 
