@@ -137,7 +137,11 @@ impl eframe::App for ParqBenchApp {
 
             let opt_file: Option<egui::DroppedFile> = ctx.input(|i| i.raw.dropped_files.last().cloned());
             let opt_path: Option<PathBuf> = opt_file.and_then(|f| f.path);
-            let filename: String = opt_path.unwrap().to_str().unwrap().to_string();
+            let filename: String = opt_path
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default()
+                .to_string();
 
             self.run_data_future(Box::new(Box::pin(ParquetData::load(filename))), ctx);
         }
