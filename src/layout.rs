@@ -21,7 +21,7 @@ impl Default for ParqBenchApp {
             table: Arc::new(None),
             query_pane: QueryPane::new(None, DataFilters::default()),
             runtime: tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(1)
+                .worker_threads(4)
                 .enable_all()
                 .build()
                 .unwrap(),
