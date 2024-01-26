@@ -1,6 +1,6 @@
 [package]
 name = "parqbench"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Connor Keane <connor.keane@kxnr.me"]
@@ -11,13 +11,16 @@ description = "A utility for viewing parquet files built on egui."
 egui = "0.25"
 egui_extras = "0.25"
 eframe = { version = "0.25", features = ["persistence"] }
-datafusion = "~8"
-rfd = { version ="~0.10", features = ["file-handle-inner"] }
-tokio = { version = "1.21.1", features = ["rt", "sync"] }
+datafusion = "35.0"
+rfd = { version ="0.13", features = ["file-handle-inner"] }
+tokio = { version = "1.35", features = ["rt", "sync", "rt-multi-thread"] }
 tracing-subscriber = "0.3"
-structopt = "~0.3"
-shellexpand = "*"
-parquet = "*"
+structopt = "0.3"
+shellexpand = "3.1"
+parquet = "50.0"
+
+[lints.rust]
+unsafe_code = "forbid"
 
 [features]
 default = []

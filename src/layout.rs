@@ -1,5 +1,8 @@
 use eframe;
-use std::{sync::Arc, path::PathBuf};
+use std::{
+    sync::Arc, 
+    path::PathBuf,
+};
 use tokio::sync::oneshot::error::TryRecvError;
 
 use crate::data::{DataFilters, DataFuture, DataResult, ParquetData};

@@ -1,14 +1,24 @@
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::DFSchema;
-use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::col;
-use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use std::ffi::IntoStringError;
-use std::future::Future;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::path::Path;
-use std::ffi::OsStr;
+use datafusion::{
+    arrow::record_batch::RecordBatch,
+    arrow::compute::concat_batches,
+    common::DFSchema,
+    dataframe::DataFrame,
+    logical_expr::col,
+    prelude::{
+        ParquetReadOptions, 
+        SessionContext,
+    },
+};
+
+use std::{
+    ffi::IntoStringError,
+    future::Future,
+    ops::Deref,
+    str::FromStr,
+    sync::Arc,
+    path::Path,
+    ffi::OsStr,
+};
 
 pub type DataResult = Result<ParquetData, String>;
 pub type DataFuture = Box<dyn Future<Output = DataResult> + Unpin + Send + 'static>;
@@ -18,11 +28,6 @@ fn get_read_options(filename: &str) -> Option<ParquetReadOptions<'_>> {
         ParquetReadOptions {file_extension: s, ..Default::default()}
     })
 }
-
-// fn normalize_path(filename: &str) -> Option<String> {
-//     Path::new(filename).canonicalize().ok()?.to_str().map(|s| format!("file:///{}", s).to_string())
-//     // Path::new(filename).canonicalize().ok()?.to_str().map(|s| s.to_string())
-// }
 
 #[derive(Debug, Clone)]
 pub struct TableName {
@@ -73,8 +78,14 @@ pub enum SortState {
     Descending(String),
 }
 
-fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
-    RecordBatch::concat(&batches[0].schema(), &batches).unwrap()
+/// Concatenates an array of RecordBatch into one batch
+/// 
+/// <https://docs.rs/datafusion/latest/datafusion/common/arrow/compute/kernels/concat/fn.concat_batches.html>
+/// 
+/// <https://docs.rs/datafusion/latest/datafusion/physical_plan/coalesce_batches/fn.concat_batches.html>
+fn concat_record_batches(batches: &[RecordBatch]) -> RecordBatch {
+    // RecordBatch::concat(&batches[0].schema(), &batches).unwrap()
+    concat_batches(&batches[0].schema(), batches).unwrap()
 }
 
 impl ParquetData {
@@ -91,12 +102,12 @@ impl ParquetData {
             .await
         {
             Ok(df) => {
-                let data = df.collect().await.unwrap();
-                let data = concat_record_batches(data);
+                let data = df.clone().collect().await.unwrap();
+                let data = concat_record_batches(&data);
                 Ok(ParquetData {
                     filename,
                     data,
-                    dataframe: df,
+                    dataframe: df.into(),
                     filters: DataFilters::default(),
                 })
             }
@@ -122,13 +133,13 @@ impl ParquetData {
 
         match &filters.query {
             Some(query) => match ctx.sql(query.as_str()).await {
-                Ok(df) => match df.collect().await {
+                Ok(df) => match df.clone().collect().await {
                     Ok(data) => {
-                        let data = concat_record_batches(data);
+                        let data = concat_record_batches(&data);
                         let data = ParquetData {
                             filename: filename.to_owned(),
                             data,
-                            dataframe: df,
+                            dataframe: df.into(),
                             filters,
                         };
                         data.sort(None).await
@@ -141,33 +152,40 @@ impl ParquetData {
         }
     }
 
-    pub async fn sort(self, filters: Option<DataFilters>) -> Result<Self, String> {
-        let filters = match filters {
-            Some(filters) => filters,
-            None => self.filters.clone(),
-        };
+    pub async fn sort(self, opt_filters: Option<DataFilters>) -> Result<Self, String> {
+        match opt_filters {
+            Some(filters) => {
+                match filters.sort.as_ref() {
+                    Some(sort) => {
+                        let (_col, ascending) = match sort {
+                            SortState::Ascending(col) => (col, true),
+                            SortState::Descending(col) => (col, false),
+                            _ => panic!(""),
+                        };
 
-        match filters.sort.as_ref() {
-            Some(sort) => {
-                let (_col, ascending) = match sort {
-                    SortState::Ascending(col) => (col, true),
-                    SortState::Descending(col) => (col, false),
-                    _ => panic!(""),
-                };
-                match self.dataframe.sort(vec![col(_col).sort(ascending, false)]) {
-                    Ok(df) => match df.collect().await {
-                        Ok(data) => Ok(ParquetData {
-                            filename: self.filename,
-                            data: concat_record_batches(data),
-                            dataframe: df,
-                            filters,
-                        }),
-                        Err(_) => Err("Error sorting data".to_string()),
-                    },
-                    Err(_) => Err("Could not sort data with given filters".to_string()),
+                        // https://doc.rust-lang.org/std/sync/struct.Arc.html
+                        // Arc<T> automatically dereferences to T (via the Deref trait)
+                        let df: DataFrame = self.dataframe.deref().clone();
+
+                        let sorted = df.sort(vec![col(_col).sort(ascending, false)]);
+
+                        match sorted {
+                            Ok(df) => match df.clone().collect().await {
+                                Ok(data) => Ok(ParquetData {
+                                    filename: self.filename,
+                                    data: concat_record_batches(&data),
+                                    dataframe: df.into(),
+                                    filters,
+                                }),
+                                Err(_) => Err("Error sorting data".to_string()),
+                            },
+                            Err(_) => Err("Could not sort data with given filters".to_string()),
+                        }
+                    }
+                    None => Ok(self),
                 }
-            }
-            None => Ok(ParquetData { filters, ..self }),
+            },
+            None => Ok(self),
         }
     }
 

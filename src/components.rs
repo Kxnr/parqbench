@@ -1,19 +1,37 @@
-use crate::data::{DataFilters, ParquetData, SortState};
-use crate::TableName;
-use datafusion::arrow::{util::display::array_value_to_string, datatypes::DataType};
-use egui::{Context, Response, Ui, WidgetText};
-use parquet::basic::ColumnOrder;
-use parquet::file::metadata::{KeyValue, ParquetMetaData};
-use parquet::file::reader::{FileReader, SerializedFileReader};
-use rfd::AsyncFileDialog;
-use std::fs::File;
-use std::path::Path;
+use datafusion::arrow::{
+    util::display::array_value_to_string, 
+    datatypes::DataType,
+};
 
-use egui_extras::{
-    //Size, 
+use egui::{
+    Context, 
+    Response, 
+    Ui, 
+    WidgetText,
+};
+
+use egui_extras::{ 
     TableBuilder, 
     Column,
 };
+
+use parquet::{
+    basic::ColumnOrder,
+    file::{
+        metadata::{KeyValue, ParquetMetaData},
+        reader::{FileReader, SerializedFileReader},
+    },
+};
+
+use rfd::AsyncFileDialog;
+
+use std::{
+    fs::File,
+    path::Path,
+};
+
+use crate::data::{DataFilters, ParquetData, SortState};
+use crate::TableName;
 
 pub trait Popover {
     fn show(&mut self, ctx: &Context) -> bool;
