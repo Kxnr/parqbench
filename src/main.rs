@@ -21,6 +21,12 @@ struct Args {
     table_name: Option<TableName>,
 }
 
+/**
+    clear && cargo test -- --nocapture
+    clear && cargo run -- -h
+    cargo b -r && cargo install --path=.
+*/
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     // Log to stdout (if you run with `RUST_LOG=debug`).
