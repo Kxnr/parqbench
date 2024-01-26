@@ -1,8 +1,5 @@
 use eframe;
-use std::{
-    sync::Arc, 
-    path::PathBuf,
-};
+use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
 
 use crate::data::{DataFilters, DataFuture, DataResult, ParquetData};
@@ -132,12 +129,9 @@ impl eframe::App for ParqBenchApp {
 
         self.check_popover(ctx);
 
-        if !ctx.input(|i| i.raw.dropped_files.is_empty()) {
-            // FIXME: unsafe unwraps
-
-            let opt_file: Option<egui::DroppedFile> = ctx.input(|i| i.raw.dropped_files.last().cloned());
-            let opt_path: Option<PathBuf> = opt_file.and_then(|f| f.path);
-            let filename: String = opt_path
+        if let Some(dropped_file) =  ctx.input(|i| i.raw.dropped_files.last().cloned()) {
+            let filename: String = dropped_file
+                .path
                 .unwrap_or_default()
                 .to_str()
                 .unwrap_or_default()
