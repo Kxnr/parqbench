@@ -1,4 +1,3 @@
-use eframe;
 use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
 
@@ -129,7 +128,7 @@ impl eframe::App for ParqBenchApp {
 
         self.check_popover(ctx);
 
-        if let Some(dropped_file) =  ctx.input(|i| i.raw.dropped_files.last().cloned()) {
+        if let Some(dropped_file) = ctx.input(|i| i.raw.dropped_files.last().cloned()) {
             let filename: String = dropped_file
                 .path
                 .unwrap_or_default()
