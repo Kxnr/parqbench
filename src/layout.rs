@@ -238,7 +238,6 @@ impl eframe::App for ParqBenchApp {
         // https://github.com/lucasmerlin/hello_egui/blob/main/crates/egui_dnd/examples/horizontal.rs
         // FIXME: How to expand/wrap table size to maximum visible size?
         CentralPanel::default().show(ctx, |ui| {
-
             let opt_parquet_data = self.table.as_ref().clone();
 
             if let Some(parquet_data) = opt_parquet_data {
