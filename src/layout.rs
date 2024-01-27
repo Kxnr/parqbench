@@ -248,13 +248,12 @@ impl eframe::App for ParqBenchApp {
 
             ScrollArea::horizontal().show(ui, |ui| {
                 ui.set_height(ui.available_height());
-                let filters = match *self.table {
-                    Some(_) => self.table.as_ref().clone().unwrap().render_table(ui),
-                    _ => None,
-                };
 
-                if let Some(filters) = filters {
-                    let future = self.table.as_ref().clone().unwrap().sort(Some(filters));
+                let opt_parquet_data: Option<ParquetData> = self.table.as_ref().clone();
+
+                if let Some(parquet_data) = opt_parquet_data {
+                    let opt_filters = parquet_data.render_table(ui);
+                    let future = parquet_data.sort(opt_filters);
                     self.run_data_future(Box::new(Box::pin(future)), ctx);
                 }
             });
