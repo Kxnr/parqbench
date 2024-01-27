@@ -1,5 +1,5 @@
 use datafusion::arrow::{datatypes::DataType, util::display::array_value_to_string};
-use egui::{Context, Response, Ui, WidgetText};
+use egui::{Context, Layout, Response, Ui, WidgetText};
 use egui_extras::{Column, TableBuilder};
 use parquet::{
     basic::ColumnOrder,
@@ -171,9 +171,9 @@ impl ParquetData {
     pub fn render_table(&self, ui: &mut Ui) -> Option<DataFilters> {
         //ui.set_width(ui.available_width());
         //ui.set_height(ui.available_height());
-        //ui.set_max_size(ui.available_size());
+        ui.set_max_size(ui.available_size());
 
-        let style = &ui.style().clone();
+        let style = ui.style().as_ref();
 
         fn is_sorted_column(sorted_col: &Option<SortState>, col: String) -> bool {
             match sorted_col {
@@ -221,7 +221,7 @@ impl ParquetData {
                     header.col(|ui| {
                         /*
                         ui.with_layout(
-                            egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
+                            Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
                             |ui| {
                                 let value: String = field.name().to_string();
                                 ui.label(value);
@@ -258,15 +258,13 @@ impl ParquetData {
                             // have conversion times on the order of ns.
                             ui.with_layout(
                                 if is_integer(data_col.data_type()) {
-                                    egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    )
+                                    Layout::centered_and_justified(egui::Direction::LeftToRight)
                                 } else if is_float(data_col.data_type()) {
-                                    egui::Layout::right_to_left(egui::Align::Center)
+                                    Layout::right_to_left(egui::Align::Center)
                                 } else {
-                                    egui::Layout::left_to_right(egui::Align::Center)
+                                    Layout::left_to_right(egui::Align::Center)
                                 }
-                                .with_main_wrap(false),
+                                .with_main_wrap(true),
                                 |ui| {
                                     let value: String =
                                         array_value_to_string(data_col, row_index).unwrap();

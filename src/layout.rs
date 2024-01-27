@@ -242,7 +242,6 @@ impl eframe::App for ParqBenchApp {
 
             if let Some(parquet_data) = opt_parquet_data {
                 ScrollArea::both().show(ui, |ui| {
-                    ui.set_max_size(ui.available_size());
                     let opt_filters = parquet_data.render_table(ui);
                     if let Some(filters) = opt_filters {
                         let future = parquet_data.sort(Some(filters));
@@ -253,8 +252,6 @@ impl eframe::App for ParqBenchApp {
 
             /*
             egui::ScrollArea::both().show(ui, |ui| {
-                ui.set_max_size(ui.available_size());
-
                 let filters = match *self.table {
                     Some(_) => self.table.as_ref().clone().unwrap().render_table(ui),
                     _ => None,
