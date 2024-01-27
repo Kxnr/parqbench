@@ -409,13 +409,10 @@ impl ExtraInteractions for Ui {
 }
 
 pub async fn file_dialog() -> Result<String, String> {
-    let file = AsyncFileDialog::new().pick_file().await;
+    let opt_file_handle = AsyncFileDialog::new().pick_file().await;
 
-    if let Some(file) = file {
-        file.inner()
-            .to_str()
-            .ok_or_else(|| "Could not parse path.".to_string())
-            .map(|s| s.to_string())
+    if let Some(file_handle) = opt_file_handle {
+        Ok(file_handle.file_name())
     } else {
         Err("No file loaded.".to_string())
     }
