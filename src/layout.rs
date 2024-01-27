@@ -1,3 +1,15 @@
+use egui::{
+    menu,
+    style::Visuals,
+    warn_if_debug_build,
+    CentralPanel,
+    Context,
+    ScrollArea,
+    SidePanel,
+    TopBottomPanel,
+    ViewportCommand,
+};
+
 use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
 
@@ -34,18 +46,18 @@ impl Default for ParqBenchApp {
 impl ParqBenchApp {
     // TODO: re-export load, query, and sort.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        cc.egui_ctx.set_visuals(egui::style::Visuals::dark());
+        cc.egui_ctx.set_visuals(Visuals::dark());
         Default::default()
     }
 
     pub fn new_with_future(cc: &eframe::CreationContext<'_>, future: DataFuture) -> Self {
         let mut app: Self = Default::default();
-        cc.egui_ctx.set_visuals(egui::style::Visuals::dark());
+        cc.egui_ctx.set_visuals(Visuals::dark());
         app.run_data_future(future, &cc.egui_ctx);
         app
     }
 
-    pub fn check_popover(&mut self, ctx: &egui::Context) {
+    pub fn check_popover(&mut self, ctx: &Context) {
         if let Some(popover) = &mut self.popover {
             if !popover.show(ctx) {
                 self.popover = None;
@@ -94,7 +106,7 @@ impl ParqBenchApp {
         }
     }
 
-    pub fn run_data_future(&mut self, future: DataFuture, ctx: &egui::Context) {
+    pub fn run_data_future(&mut self, future: DataFuture, ctx: &Context) {
         if self.check_data_pending() {
             // FIXME, use vec of tasks?
             panic!("Cannot schedule future when future already running");
@@ -104,7 +116,7 @@ impl ParqBenchApp {
 
         async fn inner(
             future: DataFuture,
-            ctx: egui::Context,
+            ctx: Context,
             tx: tokio::sync::oneshot::Sender<DataResult>,
         ) {
             let data = future.await;
@@ -116,12 +128,12 @@ impl ParqBenchApp {
     }
 }
 
-// See 
+// See
 // https://github.com/emilk/egui/blob/master/examples/custom_window_frame/src/main.rs
 // https://rodneylab.com/trying-egui/
 
 impl eframe::App for ParqBenchApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         //////////
         // Frame setup. Check if various interactions are in progress and resolve them
         //////////
@@ -157,8 +169,8 @@ impl eframe::App for ParqBenchApp {
         //
         //////////
 
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+        TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     ui.menu_button("About", |ui| {
                         ui.label("Built with egui");
@@ -182,17 +194,17 @@ impl eframe::App for ParqBenchApp {
 
                     if ui.button("Quit").clicked() {
                         //frame.close();
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        ui.ctx().send_viewport_cmd(ViewportCommand::Close);
                     }
                 });
             });
         });
 
-        egui::SidePanel::left("side_panel")
+        SidePanel::left("side_panel")
             .resizable(true)
             .show(ctx, |ui| {
                 // TODO: collapsing headers
-                egui::ScrollArea::vertical().show(ui, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
                     ui.collapsing("Query", |ui| {
                         let filters = self.query_pane.render(ui);
                         if let Some((filename, filters)) = filters {
@@ -215,7 +227,7 @@ impl eframe::App for ParqBenchApp {
                 });
             });
 
-        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+        TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 match &*self.table {
                     Some(table) => {
@@ -225,12 +237,18 @@ impl eframe::App for ParqBenchApp {
                         ui.label("no file set");
                     }
                 }
-                egui::warn_if_debug_build(ui);
+                warn_if_debug_build(ui);
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::horizontal().show(ui, |ui| {
+        // main table
+        // https://github.com/emilk/egui/issues/1376
+        // https://github.com/lucasmerlin/hello_egui/blob/main/crates/egui_dnd/examples/horizontal.rs
+        // FIXME: How to expand/wrap table size to maximum visible size?
+        CentralPanel::default().show(ctx, |ui| {
+
+            ScrollArea::horizontal().show(ui, |ui| {
+                ui.set_height(ui.available_height());
                 let filters = match *self.table {
                     Some(_) => self.table.as_ref().clone().unwrap().render_table(ui),
                     _ => None,

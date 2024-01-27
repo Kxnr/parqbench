@@ -37,4 +37,9 @@ panic = "abort"         # Remove traceback information.
 incremental = true      # Save information to disk, improving re-compile times.
 
 [profile.dev]
-opt-level = 1       
+opt-level = 1
+
+# On Manjaro Linux, install with: pacman -S mingw-w64-gcc
+# rustup target list
+# After downloading the target with `rustup target add x86_64-pc-windows-gnu`
+# cargo b -r --target x86_64-unknown-linux-gnu --target x86_64-pc-windows-gnu

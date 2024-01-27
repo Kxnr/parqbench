@@ -5,7 +5,7 @@ use datafusion::{
     dataframe::DataFrame,
     logical_expr::col,
     prelude::{
-        ParquetReadOptions, 
+        ParquetReadOptions,
         SessionContext,
     },
 };
@@ -79,12 +79,11 @@ pub enum SortState {
 }
 
 /// Concatenates an array of RecordBatch into one batch
-/// 
+///
 /// <https://docs.rs/datafusion/latest/datafusion/common/arrow/compute/kernels/concat/fn.concat_batches.html>
-/// 
+///
 /// <https://docs.rs/datafusion/latest/datafusion/physical_plan/coalesce_batches/fn.concat_batches.html>
 fn concat_record_batches(batches: &[RecordBatch]) -> RecordBatch {
-    // RecordBatch::concat(&batches[0].schema(), &batches).unwrap()
     concat_batches(&batches[0].schema(), batches).unwrap()
 }
 

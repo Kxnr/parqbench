@@ -1,17 +1,17 @@
 use datafusion::arrow::{
-    util::display::array_value_to_string, 
+    util::display::array_value_to_string,
     datatypes::DataType,
 };
 
 use egui::{
-    Context, 
-    Response, 
-    Ui, 
+    Context,
+    Response,
+    Ui,
     WidgetText,
 };
 
-use egui_extras::{ 
-    TableBuilder, 
+use egui_extras::{
+    TableBuilder,
     Column,
 };
 
@@ -186,6 +186,11 @@ impl FileMetadata {
 
 impl ParquetData {
     pub fn render_table(&self, ui: &mut Ui) -> Option<DataFilters> {
+
+        //ui.set_width(ui.available_width());
+        //ui.set_height(ui.available_height());
+        //ui.set_max_size(ui.available_size());
+
         let style = &ui.style().clone();
 
         fn is_sorted_column(sorted_col: &Option<SortState>, col: String) -> bool {
@@ -215,7 +220,7 @@ impl ParquetData {
             initial_col_width / 4.0
         };
 
-        let header_height = style.spacing.interact_size.y + (2.0f32 * style.spacing.item_spacing.y);
+        let header_height = style.spacing.interact_size.y + 2.0f32 * style.spacing.item_spacing.y;
 
         // https://github.com/emilk/egui/issues/3680
         let column = Column::initial(initial_col_width)
@@ -226,15 +231,23 @@ impl ParquetData {
         TableBuilder::new(ui)
             .striped(true)
             .stick_to_bottom(true)
-            //.clip(true)
-            .columns(
-                column,
-                self.data.num_columns(),
-            )
+            .columns(column, self.data.num_columns())
             .resizable(true)
+            //.min_scrolled_height(300.0)
             .header(header_height, |mut header| {
                 for field in self.data.schema().fields() {
                     header.col(|ui| {
+
+                        /*
+                        ui.with_layout(
+                            egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
+                            |ui| {
+                                let value: String = field.name().to_string();
+                                ui.label(value);
+                            },
+                        );
+                        */
+
                         let column_label =
                             if is_sorted_column(&sorted_column, field.name().to_string()) {
                                 sorted_column.clone().unwrap()
@@ -278,7 +291,7 @@ impl ParquetData {
                                     |ui| {
                                         let value: String =
                                             array_value_to_string(data_col, row_index).unwrap();
-                                        
+
                                         /*
                                         if is_float(data_col.data_type()) {
                                             // convert string to floating point number
