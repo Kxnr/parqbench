@@ -278,7 +278,6 @@ impl ParquetData {
                                         }
                                     }
                                     */
-
                                     ui.label(value);
                                 },
                             );
