@@ -238,16 +238,35 @@ impl eframe::App for ParqBenchApp {
         // https://github.com/lucasmerlin/hello_egui/blob/main/crates/egui_dnd/examples/horizontal.rs
         // FIXME: How to expand/wrap table size to maximum visible size?
         CentralPanel::default().show(ctx, |ui| {
-            let opt_parquet_data: Option<ParquetData> = self.table.as_ref().clone();
+
+            let opt_parquet_data = self.table.as_ref().clone();
 
             if let Some(parquet_data) = opt_parquet_data {
                 ScrollArea::both().show(ui, |ui| {
                     ui.set_max_size(ui.available_size());
                     let opt_filters = parquet_data.render_table(ui);
-                    let future = parquet_data.sort(opt_filters);
-                    self.run_data_future(Box::new(Box::pin(future)), ctx);
+                    if let Some(filters) = opt_filters {
+                        let future = parquet_data.sort(Some(filters));
+                        self.run_data_future(Box::new(Box::pin(future)), ctx);
+                    }
                 });
             }
+
+            /*
+            egui::ScrollArea::both().show(ui, |ui| {
+                ui.set_max_size(ui.available_size());
+
+                let filters = match *self.table {
+                    Some(_) => self.table.as_ref().clone().unwrap().render_table(ui),
+                    _ => None,
+                };
+
+                if let Some(filters) = filters {
+                    let future = self.table.as_ref().clone().unwrap().sort(Some(filters));
+                    self.run_data_future(Box::new(Box::pin(future)), ctx);
+                }
+            });
+            */
 
             if self.check_data_pending() {
                 ui.set_enabled(false);
