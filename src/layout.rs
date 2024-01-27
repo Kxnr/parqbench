@@ -135,10 +135,9 @@ impl eframe::App for ParqBenchApp {
         if let Some(dropped_file) = ctx.input(|i| i.raw.dropped_files.last().cloned()) {
             let filename: String = dropped_file
                 .path
-                .unwrap_or_default()
-                .to_str()
-                .unwrap_or_default()
-                .to_string();
+                .into_iter()
+                .map(|p| p.display().to_string())
+                .collect();
 
             self.run_data_future(Box::new(Box::pin(ParquetData::load(filename))), ctx);
         }
