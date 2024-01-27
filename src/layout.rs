@@ -1,20 +1,13 @@
 use egui::{
-    menu,
-    style::Visuals,
-    warn_if_debug_build,
-    CentralPanel,
-    Context,
-    ScrollArea,
-    SidePanel,
-    TopBottomPanel,
-    ViewportCommand,
+    menu, style::Visuals, warn_if_debug_build, CentralPanel, Context, ScrollArea, SidePanel,
+    TopBottomPanel, ViewportCommand,
 };
 
 use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
 
-use crate::data::{DataFilters, DataFuture, DataResult, ParquetData};
 use crate::components::{file_dialog, Error, FileMetadata, Popover, QueryPane, Settings};
+use crate::data::{DataFilters, DataFuture, DataResult, ParquetData};
 
 pub struct ParqBenchApp {
     pub table: Arc<Option<ParquetData>>,
@@ -245,7 +238,6 @@ impl eframe::App for ParqBenchApp {
         // https://github.com/lucasmerlin/hello_egui/blob/main/crates/egui_dnd/examples/horizontal.rs
         // FIXME: How to expand/wrap table size to maximum visible size?
         CentralPanel::default().show(ctx, |ui| {
-
             ScrollArea::horizontal().show(ui, |ui| {
                 ui.set_height(ui.available_height());
 

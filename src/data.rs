@@ -1,32 +1,28 @@
 use datafusion::{
-    arrow::record_batch::RecordBatch,
     arrow::compute::concat_batches,
+    arrow::record_batch::RecordBatch,
     common::DFSchema,
     dataframe::DataFrame,
     logical_expr::col,
-    prelude::{
-        ParquetReadOptions,
-        SessionContext,
-    },
+    prelude::{ParquetReadOptions, SessionContext},
 };
 
 use std::{
-    ffi::IntoStringError,
-    future::Future,
-    ops::Deref,
-    str::FromStr,
+    ffi::IntoStringError, ffi::OsStr, future::Future, ops::Deref, path::Path, str::FromStr,
     sync::Arc,
-    path::Path,
-    ffi::OsStr,
 };
 
 pub type DataResult = Result<ParquetData, String>;
 pub type DataFuture = Box<dyn Future<Output = DataResult> + Unpin + Send + 'static>;
 
 fn get_read_options(filename: &str) -> Option<ParquetReadOptions<'_>> {
-    Path::new(filename).extension().and_then(OsStr::to_str).map(|s| {
-        ParquetReadOptions {file_extension: s, ..Default::default()}
-    })
+    Path::new(filename)
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(|s| ParquetReadOptions {
+            file_extension: s,
+            ..Default::default()
+        })
 }
 
 #[derive(Debug, Clone)]
@@ -97,7 +93,13 @@ impl ParquetData {
 
         let ctx = SessionContext::new();
         match ctx
-            .read_parquet(&filename, get_read_options(&filename).ok_or("Could not set read options. Does this file have a valid extension?".to_string())?)
+            .read_parquet(
+                &filename,
+                get_read_options(&filename).ok_or(
+                    "Could not set read options. Does this file have a valid extension?"
+                        .to_string(),
+                )?,
+            )
             .await
         {
             Ok(df) => {
@@ -125,7 +127,9 @@ impl ParquetData {
         ctx.register_parquet(
             filters.table_name.to_string().as_str(),
             &filename,
-            get_read_options(&filename).ok_or("Could not set read options. Does this file have a valid extension?".to_string())?,
+            get_read_options(&filename).ok_or(
+                "Could not set read options. Does this file have a valid extension?".to_string(),
+            )?,
         )
         .await
         .ok();
@@ -183,7 +187,7 @@ impl ParquetData {
                     }
                     None => Ok(self),
                 }
-            },
+            }
             None => Ok(self),
         }
     }

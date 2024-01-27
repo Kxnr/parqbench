@@ -1,5 +1,5 @@
-use structopt::StructOpt;
 use crate::TableName;
+use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 #[structopt()]
