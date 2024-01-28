@@ -1,5 +1,5 @@
 use datafusion::arrow::{datatypes::DataType, util::display::array_value_to_string};
-use egui::{Context, Layout, Response, Ui, WidgetText};
+use egui::{Context, Layout, Response, Ui, WidgetText, TextStyle};
 use egui_extras::{Column, TableBuilder};
 use parquet::{
     basic::ColumnOrder,
@@ -189,7 +189,7 @@ impl ParquetData {
         let mut filters: Option<DataFilters> = None;
         let mut sorted_column = self.filters.sort.clone();
 
-        let text_height = egui::TextStyle::Body.resolve(style).size;
+        let text_height = TextStyle::Body.resolve(style).size;
 
         let initial_col_width = (ui.available_width() - style.spacing.scroll.bar_width)
             / (self.data.num_columns() + 1) as f32;
@@ -219,16 +219,6 @@ impl ParquetData {
             .header(header_height, |mut header| {
                 for field in self.data.schema().fields() {
                     header.col(|ui| {
-                        /*
-                        ui.with_layout(
-                            Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
-                            |ui| {
-                                let value: String = field.name().to_string();
-                                ui.label(value);
-                            },
-                        );
-                        */
-
                         let column_label =
                             if is_sorted_column(&sorted_column, field.name().to_string()) {
                                 sorted_column.clone().unwrap()
