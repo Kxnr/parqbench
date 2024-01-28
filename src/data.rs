@@ -8,7 +8,7 @@ use datafusion::{
 };
 
 use std::{
-    ffi::IntoStringError, ffi::OsStr, future::Future, ops::Deref, path::Path, str::FromStr,
+    ffi::IntoStringError, ffi::OsStr, future::Future, path::Path, str::FromStr,
     sync::Arc,
 };
 
@@ -166,10 +166,7 @@ impl ParquetData {
                             _ => panic!(""),
                         };
 
-                        // https://doc.rust-lang.org/std/sync/struct.Arc.html
-                        // Arc<T> automatically dereferences to T (via the Deref trait)
-                        let df: DataFrame = self.dataframe.deref().clone();
-
+                        let df: DataFrame = self.dataframe.as_ref().clone();
                         let sorted = df.sort(vec![col(_col).sort(ascending, false)]);
 
                         match sorted {
