@@ -169,10 +169,6 @@ impl FileMetadata {
 
 impl ParquetData {
     pub fn render_table(&self, ui: &mut Ui) -> Option<DataFilters> {
-        //ui.set_width(ui.available_width());
-        //ui.set_height(ui.available_height());
-        //ui.set_max_size(ui.available_size());
-
         let style = ui.style().as_ref();
 
         fn is_sorted_column(sorted_col: &Option<SortState>, col: String) -> bool {
@@ -203,6 +199,10 @@ impl ParquetData {
         };
 
         let header_height = style.spacing.interact_size.y + 2.0f32 * style.spacing.item_spacing.y;
+
+        //ui.set_width(ui.available_width());
+        ui.set_height(ui.available_height());
+        //ui.set_max_size(ui.available_size());
 
         // https://github.com/emilk/egui/issues/3680
         let column = Column::initial(initial_col_width)
@@ -270,12 +270,10 @@ impl ParquetData {
         };
 
         TableBuilder::new(ui)
-            .striped(true) // false: takes all available height
-            .stick_to_bottom(true)
+            .striped(false) // false: takes all available height
             .columns(column, self.data.num_columns())
             .column(Column::remainder())
             .auto_shrink([false, false])
-            .min_scrolled_height(300.0)
             .header(header_height, analyze_header)
             .body(|body| {
                 let num_rows = self.data.num_rows();
