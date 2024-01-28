@@ -39,6 +39,7 @@ incremental = true      # Save information to disk, improving re-compile times.
 [profile.dev]
 opt-level = 1
 
+# Cross-compile a Rust application from Linux to Windows
 # On Manjaro Linux, install with: pacman -S mingw-w64-gcc
 # rustup target list
 # After downloading the target with `rustup target add x86_64-pc-windows-gnu`

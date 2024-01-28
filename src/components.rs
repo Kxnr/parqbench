@@ -1,5 +1,5 @@
 use datafusion::arrow::{datatypes::DataType, util::display::array_value_to_string};
-use egui::{Context, Layout, Response, Ui, WidgetText, TextStyle};
+use egui::{Context, Layout, Response, TextStyle, Ui, WidgetText};
 use egui_extras::{Column, TableBuilder};
 use parquet::{
     basic::ColumnOrder,
@@ -171,7 +171,7 @@ impl ParquetData {
     pub fn render_table(&self, ui: &mut Ui) -> Option<DataFilters> {
         //ui.set_width(ui.available_width());
         //ui.set_height(ui.available_height());
-        ui.set_max_size(ui.available_size());
+        //ui.set_max_size(ui.available_size());
 
         let style = ui.style().as_ref();
 
@@ -202,11 +202,12 @@ impl ParquetData {
             initial_col_width / 4.0
         };
 
-        let header_height = style.spacing.interact_size.y + 2.0f32 * style.spacing.item_spacing.y;
+        let header_height = 2.0f32 * (style.spacing.interact_size.y + style.spacing.item_spacing.y);
 
         // https://github.com/emilk/egui/issues/3680
         let column = Column::initial(initial_col_width)
             .at_least(min_col_width)
+            .resizable(true)
             .clip(true);
 
         // FIXME: this will certainly break if there are no columns
@@ -214,8 +215,8 @@ impl ParquetData {
             .striped(true)
             .stick_to_bottom(true)
             .columns(column, self.data.num_columns())
-            .resizable(true)
-            //.min_scrolled_height(300.0)
+            .auto_shrink([false, false])
+            .min_scrolled_height(300.0)
             .header(header_height, |mut header| {
                 for field in self.data.schema().fields() {
                     header.col(|ui| {
@@ -225,6 +226,7 @@ impl ParquetData {
                             } else {
                                 SortState::NotSorted(field.name().to_string())
                             };
+                        //ui.centered_and_justified(|ui| {
                         ui.horizontal_centered(|ui| {
                             let response = ui.sort_button(&mut sorted_column, column_label.clone());
                             if response.clicked() {
@@ -238,7 +240,8 @@ impl ParquetData {
                 }
             })
             .body(|body| {
-                body.rows(text_height, self.data.num_rows(), |mut row| {
+                let num_rows = self.data.num_rows();
+                body.rows(text_height, num_rows, |mut row| {
                     let row_index = row.index();
                     for data_col in self.data.columns() {
                         row.col(|ui| {
@@ -258,7 +261,6 @@ impl ParquetData {
                                 |ui| {
                                     let value: String =
                                         array_value_to_string(data_col, row_index).unwrap();
-
                                     /*
                                     if is_float(data_col.data_type()) {
                                         // convert string to floating point number

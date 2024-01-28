@@ -7,10 +7,7 @@ use datafusion::{
     prelude::{ParquetReadOptions, SessionContext},
 };
 
-use std::{
-    ffi::IntoStringError, ffi::OsStr, future::Future, path::Path, str::FromStr,
-    sync::Arc,
-};
+use std::{ffi::IntoStringError, ffi::OsStr, future::Future, path::Path, str::FromStr, sync::Arc};
 
 pub type DataResult = Result<ParquetData, String>;
 pub type DataFuture = Box<dyn Future<Output = DataResult> + Unpin + Send + 'static>;
@@ -157,34 +154,32 @@ impl ParquetData {
 
     pub async fn sort(self, opt_filters: Option<DataFilters>) -> Result<Self, String> {
         match opt_filters {
-            Some(filters) => {
-                match filters.sort.as_ref() {
-                    Some(sort) => {
-                        let (_col, ascending) = match sort {
-                            SortState::Ascending(col) => (col, true),
-                            SortState::Descending(col) => (col, false),
-                            _ => panic!(""),
-                        };
+            Some(filters) => match filters.sort.as_ref() {
+                Some(sort) => {
+                    let (_col, ascending) = match sort {
+                        SortState::Ascending(col) => (col, true),
+                        SortState::Descending(col) => (col, false),
+                        _ => panic!(""),
+                    };
 
-                        let df: DataFrame = self.dataframe.as_ref().clone();
-                        let sorted = df.sort(vec![col(_col).sort(ascending, false)]);
+                    let df: DataFrame = self.dataframe.as_ref().clone();
+                    let sorted = df.sort(vec![col(_col).sort(ascending, false)]);
 
-                        match sorted {
-                            Ok(df) => match df.clone().collect().await {
-                                Ok(data) => Ok(ParquetData {
-                                    filename: self.filename,
-                                    data: concat_record_batches(&data),
-                                    dataframe: df.into(),
-                                    filters,
-                                }),
-                                Err(_) => Err("Error sorting data".to_string()),
-                            },
-                            Err(_) => Err("Could not sort data with given filters".to_string()),
-                        }
+                    match sorted {
+                        Ok(df) => match df.clone().collect().await {
+                            Ok(data) => Ok(ParquetData {
+                                filename: self.filename,
+                                data: concat_record_batches(&data),
+                                dataframe: df.into(),
+                                filters,
+                            }),
+                            Err(_) => Err("Error sorting data".to_string()),
+                        },
+                        Err(_) => Err("Could not sort data with given filters".to_string()),
                     }
-                    None => Ok(self),
                 }
-            }
+                None => Ok(self),
+            },
             None => Ok(self),
         }
     }

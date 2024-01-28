@@ -30,9 +30,9 @@ fn main() -> eframe::Result<()> {
                 None => ParqBenchApp::new(cc),
                 Some(filename) => {
                     match args.query {
-                        Some(_) => {
+                        Some(query) => {
                             let filters = DataFilters {
-                                query: args.query,
+                                query: Some(query),
                                 // FIXME: this doesn't grab struct default
                                 table_name: args.table_name.unwrap_or_default(),
                                 ..Default::default()
