@@ -1,6 +1,6 @@
 use datafusion::arrow::{datatypes::DataType, util::display::array_value_to_string};
 use egui::{Context, Layout, Response, TextStyle, Ui, WidgetText};
-use egui_extras::{Column, TableBuilder};
+use egui_extras::{Column, TableBuilder, TableRow};
 use parquet::{
     basic::ColumnOrder,
     file::{
@@ -202,7 +202,7 @@ impl ParquetData {
             initial_col_width / 4.0
         };
 
-        let header_height = 2.0f32 * (style.spacing.interact_size.y + style.spacing.item_spacing.y);
+        let header_height = style.spacing.interact_size.y + 2.0f32 * style.spacing.item_spacing.y;
 
         // https://github.com/emilk/egui/issues/3680
         let column = Column::initial(initial_col_width)
@@ -210,73 +210,78 @@ impl ParquetData {
             .resizable(true)
             .clip(true);
 
-        // FIXME: this will certainly break if there are no columns
+        let analyze_header = |mut table_row: TableRow<'_, '_>| {
+            for field in self.data.schema().fields() {
+                table_row.col(|ui| {
+                    let column_label = if is_sorted_column(&sorted_column, field.name().to_string())
+                    {
+                        sorted_column.clone().unwrap()
+                    } else {
+                        SortState::NotSorted(field.name().to_string())
+                    };
+                    //ui.centered_and_justified(|ui| {
+                    ui.horizontal_centered(|ui| {
+                        let response = ui.sort_button(&mut sorted_column, column_label.clone());
+                        if response.clicked() {
+                            filters = Some(DataFilters {
+                                sort: sorted_column.clone(),
+                                ..self.filters.clone()
+                            });
+                        }
+                    });
+                });
+            }
+        };
+
+        let analyze_rows = |mut table_row: TableRow<'_, '_>| {
+            for data_col in self.data.columns() {
+                let row_index = table_row.index();
+                table_row.col(|ui| {
+                    // while not efficient (as noted in docs) we need to display
+                    // at most a few dozen records at a time (barring pathological
+                    // tables with absurd numbers of columns) and should still
+                    // have conversion times on the order of ns.
+                    ui.with_layout(
+                        if is_integer(data_col.data_type()) {
+                            Layout::centered_and_justified(egui::Direction::LeftToRight)
+                        } else if is_float(data_col.data_type()) {
+                            Layout::right_to_left(egui::Align::Center)
+                        } else {
+                            Layout::left_to_right(egui::Align::Center)
+                        }
+                        .with_main_wrap(false),
+                        |ui| {
+                            let value: String =
+                                array_value_to_string(data_col, row_index).unwrap_or_default();
+                            /*
+                            if is_float(data_col.data_type()) {
+                                // convert string to floating point number
+                                value = match value.parse::<f64>() {
+                                    Ok(float) => format!("{float:0.4}"),
+                                    Err(_) => value,
+                                }
+                            }
+                            */
+                            ui.label(value);
+                        },
+                    );
+                });
+            }
+        };
+
         TableBuilder::new(ui)
-            .striped(true)
+            .striped(true) // false: takes all available height
             .stick_to_bottom(true)
             .columns(column, self.data.num_columns())
+            .column(Column::remainder())
             .auto_shrink([false, false])
             .min_scrolled_height(300.0)
-            .header(header_height, |mut header| {
-                for field in self.data.schema().fields() {
-                    header.col(|ui| {
-                        let column_label =
-                            if is_sorted_column(&sorted_column, field.name().to_string()) {
-                                sorted_column.clone().unwrap()
-                            } else {
-                                SortState::NotSorted(field.name().to_string())
-                            };
-                        //ui.centered_and_justified(|ui| {
-                        ui.horizontal_centered(|ui| {
-                            let response = ui.sort_button(&mut sorted_column, column_label.clone());
-                            if response.clicked() {
-                                filters = Some(DataFilters {
-                                    sort: sorted_column.clone(),
-                                    ..self.filters.clone()
-                                });
-                            }
-                        });
-                    });
-                }
-            })
+            .header(header_height, analyze_header)
             .body(|body| {
                 let num_rows = self.data.num_rows();
-                body.rows(text_height, num_rows, |mut row| {
-                    let row_index = row.index();
-                    for data_col in self.data.columns() {
-                        row.col(|ui| {
-                            // while not efficient (as noted in docs) we need to display
-                            // at most a few dozen records at a time (barring pathological
-                            // tables with absurd numbers of columns) and should still
-                            // have conversion times on the order of ns.
-                            ui.with_layout(
-                                if is_integer(data_col.data_type()) {
-                                    Layout::centered_and_justified(egui::Direction::LeftToRight)
-                                } else if is_float(data_col.data_type()) {
-                                    Layout::right_to_left(egui::Align::Center)
-                                } else {
-                                    Layout::left_to_right(egui::Align::Center)
-                                }
-                                .with_main_wrap(true),
-                                |ui| {
-                                    let value: String =
-                                        array_value_to_string(data_col, row_index).unwrap();
-                                    /*
-                                    if is_float(data_col.data_type()) {
-                                        // convert string to floating point number
-                                        value = match value.parse::<f64>() {
-                                            Ok(float) => format!("{float:0.4}"),
-                                            Err(_) => value,
-                                        }
-                                    }
-                                    */
-                                    ui.label(value);
-                                },
-                            );
-                        });
-                    }
-                });
+                body.rows(text_height, num_rows, analyze_rows);
             });
+
         filters
     }
 }
