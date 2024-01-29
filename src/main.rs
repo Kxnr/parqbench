@@ -29,7 +29,6 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             Box::new(match args.filename {
-                None => ParqBenchApp::new(cc),
                 Some(filename) => {
                     /*
                     match args.query {
@@ -51,29 +50,25 @@ fn main() -> eframe::Result<()> {
                     }
                     */
 
-                    match (args.query, args.table_name) {
-                        (Some(query), Some(table_name)) => {
-                            let filters = DataFilters {
-                                query: Some(query),
-                                table_name,
-                                ..Default::default()
-                            };
-                            dbg!(filters);
-                        }
-                        (Some(query), None) => {
-                            let filters = DataFilters {
-                                query: Some(query),
-                                table_name: TableName::default(),
-                                ..Default::default()
-                            };
-                            dbg!(filters);
-                        }
-                        _ => (),
+                    let filters = match (args.query, args.table_name) {
+                        (Some(query), Some(table_name)) => DataFilters {
+                            query: Some(query),
+                            table_name,
+                            ..Default::default()
+                        },
+                        (Some(query), None) => DataFilters {
+                            query: Some(query),
+                            table_name: TableName::default(),
+                            ..Default::default()
+                        },
+                        _ => DataFilters::default(),
                     };
+                    dbg!(filters);
 
                     let future = ParquetData::load(filename);
                     ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
                 }
+                None => ParqBenchApp::new(cc),
             })
         }),
     )

@@ -1,8 +1,7 @@
 use egui::{
-    menu, style::Visuals, warn_if_debug_build, CentralPanel, Context, ScrollArea, SidePanel,
-    TopBottomPanel, ViewportCommand,
+    menu, style::Visuals, warn_if_debug_build, widgets, CentralPanel, Context, ScrollArea,
+    SidePanel, TopBottomPanel, ViewportCommand,
 };
-
 use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
 
@@ -149,7 +148,7 @@ impl eframe::App for ParqBenchApp {
         //////////
         //   Using static layout until I put together a TabTree that can make this dynamic
         //
-        //   | menu_bar            |
+        //   | menu_bar  | widgets |
         //   -----------------------
         //   |       |             |
         //   | query |     main    |
@@ -188,6 +187,9 @@ impl eframe::App for ParqBenchApp {
                         ui.ctx().send_viewport_cmd(ViewportCommand::Close);
                     }
                 });
+                ui.end_row();
+                //widgets::global_dark_light_mode_switch(ui);
+                widgets::global_dark_light_mode_buttons(ui);
             });
         });
 
@@ -219,26 +221,27 @@ impl eframe::App for ParqBenchApp {
             });
 
         TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                match &*self.table {
-                    Some(table) => {
-                        ui.label(format!("{:#?}", table.filename));
-                    }
-                    None => {
-                        ui.label("no file set");
-                    }
+            ui.horizontal(|ui| match &*self.table {
+                Some(table) => {
+                    ui.label(format!("{:#?}", table.filename));
                 }
-                warn_if_debug_build(ui);
+                None => {
+                    ui.label("no file set");
+                }
             });
         });
 
         // main table
+        // https://whoisryosuke.com/blog/2023/getting-started-with-egui-in-rust
         // https://github.com/emilk/egui/issues/1376
         // https://github.com/emilk/egui/discussions/3069
         // https://github.com/lucasmerlin/hello_egui/blob/main/crates/egui_dnd/examples/horizontal.rs
         // https://github.com/vvv/egui-table-click/blob/table-row-framing/src/lib.rs
+        // https://github.com/emilk/eframe_template/blob/4f613f5d6266f0f0888544df4555e6bc77a5d079/src/app.rs
         // FIXME: How to expand/wrap table size to maximum visible size?
         CentralPanel::default().show(ctx, |ui| {
+            warn_if_debug_build(ui);
+
             let opt_parquet_data = self.table.as_ref().clone();
 
             if let Some(parquet_data) = opt_parquet_data {
