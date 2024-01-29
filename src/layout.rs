@@ -188,8 +188,8 @@ impl eframe::App for ParqBenchApp {
                     }
                 });
                 ui.end_row();
-                //widgets::global_dark_light_mode_switch(ui);
-                widgets::global_dark_light_mode_buttons(ui);
+                widgets::global_dark_light_mode_switch(ui);
+                //widgets::global_dark_light_mode_buttons(ui);
             });
         });
 

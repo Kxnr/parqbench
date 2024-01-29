@@ -50,7 +50,7 @@ fn main() -> eframe::Result<()> {
                     }
                     */
 
-                    let filters = match (args.query, args.table_name) {
+                    let data_filters = match (args.query, args.table_name) {
                         (Some(query), Some(table_name)) => DataFilters {
                             query: Some(query),
                             table_name,
@@ -63,7 +63,7 @@ fn main() -> eframe::Result<()> {
                         },
                         _ => DataFilters::default(),
                     };
-                    dbg!(filters);
+                    dbg!(data_filters);
 
                     let future = ParquetData::load(filename);
                     ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
