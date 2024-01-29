@@ -274,6 +274,7 @@ impl ParquetData {
             .columns(column, self.data.num_columns())
             .column(Column::remainder())
             .auto_shrink([false, false])
+            .min_scrolled_height(1000.0)
             .header(header_height, analyze_header)
             .body(|body| {
                 let num_rows = self.data.num_rows();

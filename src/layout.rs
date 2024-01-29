@@ -234,14 +234,16 @@ impl eframe::App for ParqBenchApp {
 
         // main table
         // https://github.com/emilk/egui/issues/1376
+        // https://github.com/emilk/egui/discussions/3069
         // https://github.com/lucasmerlin/hello_egui/blob/main/crates/egui_dnd/examples/horizontal.rs
+        // https://github.com/vvv/egui-table-click/blob/table-row-framing/src/lib.rs
         // FIXME: How to expand/wrap table size to maximum visible size?
         CentralPanel::default().show(ctx, |ui| {
             let opt_parquet_data = self.table.as_ref().clone();
 
             if let Some(parquet_data) = opt_parquet_data {
                 if parquet_data.data.num_columns() > 0 {
-                    ScrollArea::both().show(ui, |ui| {
+                    ScrollArea::horizontal().show(ui, |ui| {
                         let opt_filters = parquet_data.render_table(ui);
                         if opt_filters.is_some() {
                             let future = parquet_data.sort(opt_filters);
@@ -267,12 +269,12 @@ impl eframe::App for ParqBenchApp {
 
             if self.check_data_pending() {
                 ui.set_enabled(false);
-                if self.table.is_none() {
+                if self.table.as_ref().is_none() {
                     ui.centered_and_justified(|ui| {
                         ui.spinner();
                     });
                 }
-            } else if self.table.is_none() {
+            } else if self.table.as_ref().is_none() {
                 ui.centered_and_justified(|ui| {
                     ui.label("Drag and drop parquet file here.");
                 });
