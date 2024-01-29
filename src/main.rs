@@ -58,9 +58,7 @@ fn main() -> eframe::Result<()> {
                                 table_name,
                                 ..Default::default()
                             };
-                            dbg!(filters.clone());
-                            let future = ParquetData::load_with_query(filename, filters);
-                            ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
+                            dbg!(filters);
                         }
                         (Some(query), None) => {
                             let filters = DataFilters {
@@ -68,15 +66,13 @@ fn main() -> eframe::Result<()> {
                                 table_name: TableName::default(),
                                 ..Default::default()
                             };
-                            dbg!(filters.clone());
-                            let future = ParquetData::load_with_query(filename, filters);
-                            ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
+                            dbg!(filters);
                         }
-                        _ => {
-                            let future = ParquetData::load(filename);
-                            ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
-                        }
-                    }
+                        _ => (),
+                    };
+
+                    let future = ParquetData::load(filename);
+                    ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
                 }
             })
         }),

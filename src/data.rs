@@ -39,7 +39,9 @@ impl FromStr for TableName {
     type Err = IntoStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self { name: s.to_string() })
+        Ok(Self {
+            name: s.to_string(),
+        })
     }
 }
 
