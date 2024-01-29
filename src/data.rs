@@ -39,13 +39,13 @@ impl FromStr for TableName {
     type Err = IntoStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self { name: s.to_owned() })
+        Ok(Self { name: s.to_string() })
     }
 }
 
 impl ToString for TableName {
     fn to_string(&self) -> String {
-        self.name.to_owned()
+        self.name.to_string()
     }
 }
 

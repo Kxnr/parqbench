@@ -12,6 +12,8 @@ use parqbench::{Args, DataFilters, ParqBenchApp, ParquetData};
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     // Log to stdout (if you run with `RUST_LOG=debug`).
+
+    use parqbench::TableName;
     tracing_subscriber::fmt::init();
 
     let args = Args::build();
@@ -29,6 +31,7 @@ fn main() -> eframe::Result<()> {
             Box::new(match args.filename {
                 None => ParqBenchApp::new(cc),
                 Some(filename) => {
+                    /*
                     match args.query {
                         Some(query) => {
                             let filters = DataFilters {
@@ -42,6 +45,34 @@ fn main() -> eframe::Result<()> {
                             ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
                         }
                         None => {
+                            let future = ParquetData::load(filename);
+                            ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
+                        }
+                    }
+                    */
+
+                    match (args.query, args.table_name) {
+                        (Some(query), Some(table_name)) => {
+                            let filters = DataFilters {
+                                query: Some(query),
+                                table_name,
+                                ..Default::default()
+                            };
+                            dbg!(filters.clone());
+                            let future = ParquetData::load_with_query(filename, filters);
+                            ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
+                        }
+                        (Some(query), None) => {
+                            let filters = DataFilters {
+                                query: Some(query),
+                                table_name: TableName::default(),
+                                ..Default::default()
+                            };
+                            dbg!(filters.clone());
+                            let future = ParquetData::load_with_query(filename, filters);
+                            ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
+                        }
+                        _ => {
                             let future = ParquetData::load(filename);
                             ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
                         }
