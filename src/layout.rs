@@ -148,48 +148,53 @@ impl eframe::App for ParqBenchApp {
         //////////
         //   Using static layout until I put together a TabTree that can make this dynamic
         //
-        //   | menu_bar  | widgets |
-        //   -----------------------
-        //   |       |             |
-        //   | query |     main    |
-        //   | info  |     table   |
-        //   |       |             |
-        //   -----------------------
-        //   | notification footer |
+        //   | menu_bar      widgets |
+        //   -------------------------
+        //   |       |               |
+        //   | query |     main      |
+        //   | info  |     table     |
+        //   |       |               |
+        //   -------------------------
+        //   |  notification footer  |
         //
         //////////
 
         TopBottomPanel::top("top_panel").show(ctx, |ui| {
             menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    ui.menu_button("About", |ui| {
-                        ui.label("Built with egui");
-                    });
+                ui.horizontal(|ui| {
+                    ui.menu_button("File", |ui| {
+                        ui.menu_button("About", |ui| {
+                            ui.label("Built with egui");
+                        });
 
-                    if ui.button("Open...").clicked() {
-                        if let Ok(filename) = self.runtime.block_on(file_dialog()) {
-                            self.run_data_future(
-                                Box::new(Box::pin(ParquetData::load(filename))),
-                                ctx,
-                            );
+                        if ui.button("Open...").clicked() {
+                            if let Ok(filename) = self.runtime.block_on(file_dialog()) {
+                                self.run_data_future(
+                                    Box::new(Box::pin(ParquetData::load(filename))),
+                                    ctx,
+                                );
+                            }
+                            ui.close_menu();
                         }
-                        ui.close_menu();
-                    }
 
-                    if ui.button("Settings...").clicked() {
-                        // FIXME: need to manage potential for multiple popovers
-                        self.popover = Some(Box::new(Settings {}));
-                        ui.close_menu();
-                    }
+                        if ui.button("Settings...").clicked() {
+                            // FIXME: need to manage potential for multiple popovers
+                            self.popover = Some(Box::new(Settings {}));
+                            ui.close_menu();
+                        }
 
-                    if ui.button("Quit").clicked() {
-                        //frame.close();
-                        ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+                        if ui.button("Quit").clicked() {
+                            //frame.close();
+                            ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+                        }
+                    });
+                    let delta = ui.available_width() - 15.0;
+                    if delta > 0.0 {
+                        ui.add_space(delta);
+                        widgets::global_dark_light_mode_switch(ui);
+                        //widgets::global_dark_light_mode_buttons(ui);
                     }
                 });
-                ui.end_row();
-                widgets::global_dark_light_mode_switch(ui);
-                //widgets::global_dark_light_mode_buttons(ui);
             });
         });
 
