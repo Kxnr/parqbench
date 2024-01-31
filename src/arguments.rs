@@ -1,7 +1,7 @@
 use crate::TableName;
 use structopt::StructOpt;
 
-#[derive(StructOpt, Debug)]
+#[derive(StructOpt, Debug, Clone)]
 #[structopt()]
 pub struct Args {
     #[structopt()]

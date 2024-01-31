@@ -7,6 +7,7 @@ use datafusion::{
     prelude::{ParquetReadOptions, SessionContext},
 };
 
+use crate::Args;
 use std::{ffi::IntoStringError, ffi::OsStr, future::Future, path::Path, str::FromStr, sync::Arc};
 
 pub type DataResult = Result<ParquetData, String>;
@@ -56,6 +57,25 @@ pub struct DataFilters {
     pub sort: Option<SortState>,
     pub table_name: TableName,
     pub query: Option<String>,
+}
+
+impl DataFilters {
+    pub fn debug(args: &Args) {
+        let args = args.clone();
+
+        let table_name = match args.table_name {
+            Some(tn) => tn,
+            None => TableName::default(),
+        };
+
+        let data_filters = DataFilters {
+            query: args.query,
+            table_name: table_name.clone(),
+            ..Default::default()
+        };
+
+        dbg!(data_filters);
+    }
 }
 
 #[derive(Clone)]

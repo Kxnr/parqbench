@@ -12,8 +12,6 @@ use parqbench::{Args, DataFilters, ParqBenchApp, ParquetData};
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     // Log to stdout (if you run with `RUST_LOG=debug`).
-
-    use parqbench::TableName;
     tracing_subscriber::fmt::init();
 
     let args = Args::build();
@@ -28,7 +26,7 @@ fn main() -> eframe::Result<()> {
         "ParqBench",
         options,
         Box::new(move |cc| {
-            Box::new(match args.filename {
+            Box::new(match &args.filename {
                 Some(filename) => {
                     /*
                     match args.query {
@@ -50,20 +48,8 @@ fn main() -> eframe::Result<()> {
                     }
                     */
 
-                    let table_name = match args.table_name {
-                        Some(tn) => tn,
-                        None => TableName::default(),
-                    };
-
-                    let data_filters = DataFilters {
-                        query: args.query,
-                        table_name,
-                        ..Default::default()
-                    };
-
-                    dbg!(data_filters);
-
-                    let future = ParquetData::load(filename);
+                    DataFilters::debug(&args);
+                    let future = ParquetData::load(filename.to_string());
                     ParqBenchApp::new_with_future(cc, Box::new(Box::pin(future)))
                 }
                 None => ParqBenchApp::new(cc),
