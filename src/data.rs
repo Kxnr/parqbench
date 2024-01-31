@@ -169,12 +169,13 @@ impl ParquetData {
                         SortState::NotSorted(_col_name) => return Ok(self),
                     };
 
+                    dbg!(sort);
+                    dbg!(col_name);
+                    dbg!(ascending);
+
                     let df: DataFrame = self.dataframe.as_ref().clone();
                     let exp = col(col_name).sort(ascending, false);
                     let sorted = df.sort(vec![exp]);
-
-                    dbg!(col_name);
-                    dbg!(ascending);
 
                     match sorted {
                         Ok(df) => match df.clone().collect().await {
