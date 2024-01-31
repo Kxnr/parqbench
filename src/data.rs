@@ -163,14 +163,18 @@ impl ParquetData {
         match opt_filters {
             Some(filters) => match filters.sort.as_ref() {
                 Some(sort) => {
-                    let (_col, ascending) = match sort {
-                        SortState::Ascending(col) => (col, true),
-                        SortState::Descending(col) => (col, false),
-                        _ => panic!(""),
+                    let (col_name, ascending) = match sort {
+                        SortState::Ascending(col_name) => (col_name, true),
+                        SortState::Descending(col_name) => (col_name, false),
+                        SortState::NotSorted(_col_name) => return Ok(self),
                     };
 
                     let df: DataFrame = self.dataframe.as_ref().clone();
-                    let sorted = df.sort(vec![col(_col).sort(ascending, false)]);
+                    let exp = col(col_name).sort(ascending, false);
+                    let sorted = df.sort(vec![exp]);
+
+                    dbg!(col_name);
+                    dbg!(ascending);
 
                     match sorted {
                         Ok(df) => match df.clone().collect().await {
@@ -185,9 +189,18 @@ impl ParquetData {
                                 };
                                 Ok(parquet_data)
                             }
-                            Err(_) => Err("Error sorting data".to_string()),
+                            Err(msg) => {
+                                let error_msg = format!("Error sorting data: {msg}!");
+                                Err(error_msg)
+                            }
                         },
-                        Err(_) => Err("Could not sort data with given filters".to_string()),
+                        Err(msg) => {
+                            let error_msg1 = format!("Unable to sort column '{col_name}'\n");
+                            let error_msg2 = format!("Selected filter: {filters:?}\n");
+                            let error_msg3 = format!("Error message: {msg}!");
+                            let error_msg = [error_msg1, error_msg2, error_msg3].concat();
+                            Err(error_msg)
+                        }
                     }
                 }
                 None => Ok(self),
