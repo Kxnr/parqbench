@@ -1,7 +1,13 @@
 use egui::{
-    menu, style::Visuals, warn_if_debug_build, widgets, CentralPanel, Context, ScrollArea,
-    SidePanel, TopBottomPanel, ViewportCommand,
+    menu,
+    style::Visuals,
+    warn_if_debug_build, widgets, CentralPanel, Context,
+    FontFamily::Proportional,
+    FontId, ScrollArea, SidePanel,
+    TextStyle::{Body, Button, Heading, Monospace, Small},
+    TopBottomPanel, ViewportCommand,
 };
+
 use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
 
@@ -34,16 +40,45 @@ impl Default for ParqBenchApp {
     }
 }
 
+trait MyStyle {
+    fn set_style_init(&self);
+}
+
+impl MyStyle for Context {
+    /// Specifies the look and feel of egui.
+    ///
+    /// <https://docs.rs/egui/latest/egui/style/struct.Style.html>
+    fn set_style_init(&self) {
+        // Get current context style
+        let mut style = (*self.style()).clone();
+
+        // Redefine text_styles
+        style.text_styles = [
+            (Small, FontId::new(10.0, Proportional)),
+            (Body, FontId::new(14.0, Proportional)),
+            (Monospace, FontId::new(14.0, Proportional)),
+            (Button, FontId::new(14.0, Proportional)),
+            (Heading, FontId::new(16.0, Proportional)),
+        ]
+        .into();
+
+        // Mutate global style with above changes
+        self.set_style(style);
+    }
+}
+
 impl ParqBenchApp {
     // TODO: re-export load, query, and sort.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         cc.egui_ctx.set_visuals(Visuals::dark());
+        cc.egui_ctx.set_style_init();
         Default::default()
     }
 
     pub fn new_with_future(cc: &eframe::CreationContext<'_>, future: DataFuture) -> Self {
         let mut app: Self = Default::default();
         cc.egui_ctx.set_visuals(Visuals::dark());
+        cc.egui_ctx.set_style_init();
         app.run_data_future(future, &cc.egui_ctx);
         app
     }
