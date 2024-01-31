@@ -1,6 +1,6 @@
 use datafusion::{
     arrow::compute::concat_batches,
-    arrow::record_batch::RecordBatch,
+    arrow::{error::ArrowError, record_batch::RecordBatch},
     common::DFSchema,
     dataframe::DataFrame,
     logical_expr::col,
@@ -78,8 +78,8 @@ pub enum SortState {
 /// <https://docs.rs/datafusion/latest/datafusion/common/arrow/compute/kernels/concat/fn.concat_batches.html>
 ///
 /// <https://docs.rs/datafusion/latest/datafusion/physical_plan/coalesce_batches/fn.concat_batches.html>
-fn concat_record_batches(batches: &[RecordBatch]) -> RecordBatch {
-    concat_batches(&batches[0].schema(), batches).unwrap()
+fn concat_record_batches(batches: &[RecordBatch]) -> Result<RecordBatch, ArrowError> {
+    concat_batches(&batches[0].schema(), batches)
 }
 
 impl ParquetData {
@@ -101,16 +101,20 @@ impl ParquetData {
             )
             .await
         {
-            Ok(df) => {
-                let data = df.clone().collect().await.unwrap();
-                let data = concat_record_batches(&data);
-                Ok(ParquetData {
-                    filename,
-                    data,
-                    dataframe: df.into(),
-                    filters: DataFilters::default(),
-                })
-            }
+            Ok(df) => match df.clone().collect().await {
+                Ok(vec_record_batch) => {
+                    let record_batch =
+                        concat_record_batches(&vec_record_batch).map_err(|err| err.to_string())?;
+                    let parquet_data = ParquetData {
+                        filename,
+                        data: record_batch,
+                        dataframe: df.into(),
+                        filters: DataFilters::default(),
+                    };
+                    Ok(parquet_data)
+                }
+                Err(msg) => Err(msg.to_string()),
+            },
             Err(msg) => Err(format!("{}", msg)),
         }
     }
@@ -136,15 +140,16 @@ impl ParquetData {
         match &filters.query {
             Some(query) => match ctx.sql(query.as_str()).await {
                 Ok(df) => match df.clone().collect().await {
-                    Ok(data) => {
-                        let data = concat_record_batches(&data);
-                        let data = ParquetData {
+                    Ok(vec_record_batch) => {
+                        let record_batch = concat_record_batches(&vec_record_batch)
+                            .map_err(|err| err.to_string())?;
+                        let parquet_data = ParquetData {
                             filename: filename.to_owned(),
-                            data,
+                            data: record_batch,
                             dataframe: df.into(),
                             filters,
                         };
-                        data.sort(None).await
+                        parquet_data.sort(None).await
                     }
                     Err(msg) => Err(msg.to_string()),
                 },
@@ -169,12 +174,17 @@ impl ParquetData {
 
                     match sorted {
                         Ok(df) => match df.clone().collect().await {
-                            Ok(data) => Ok(ParquetData {
-                                filename: self.filename,
-                                data: concat_record_batches(&data),
-                                dataframe: df.into(),
-                                filters,
-                            }),
+                            Ok(vec_record_batch) => {
+                                let record_batch = concat_record_batches(&vec_record_batch)
+                                    .map_err(|err| err.to_string())?;
+                                let parquet_data = ParquetData {
+                                    filename: self.filename,
+                                    data: record_batch,
+                                    dataframe: df.into(),
+                                    filters,
+                                };
+                                Ok(parquet_data)
+                            }
                             Err(_) => Err("Error sorting data".to_string()),
                         },
                         Err(_) => Err("Could not sort data with given filters".to_string()),
