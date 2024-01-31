@@ -291,12 +291,12 @@ impl eframe::App for ParqBenchApp {
                             self.run_data_future(Box::new(Box::pin(future)), ctx);
                         }
                     });
-                },
+                }
                 _ => {
                     ui.centered_and_justified(|ui| {
                         ui.label("Drag and drop parquet file here.");
                     });
-                },
+                }
             };
 
             if self.check_data_pending() {
