@@ -282,10 +282,8 @@ impl eframe::App for ParqBenchApp {
         CentralPanel::default().show(ctx, |ui| {
             warn_if_debug_build(ui);
 
-            let opt_parquet_data = self.table.as_ref().clone();
-
-            if let Some(parquet_data) = opt_parquet_data {
-                if parquet_data.data.num_columns() > 0 {
+            match self.table.as_ref().clone() {
+                Some(parquet_data) if parquet_data.data.num_columns() > 0 => {
                     ScrollArea::horizontal().show(ui, |ui| {
                         let opt_filters = parquet_data.render_table(ui);
                         if opt_filters.is_some() {
@@ -293,22 +291,13 @@ impl eframe::App for ParqBenchApp {
                             self.run_data_future(Box::new(Box::pin(future)), ctx);
                         }
                     });
-                }
-            }
-
-            /*
-            egui::ScrollArea::both().show(ui, |ui| {
-                let filters = match *self.table {
-                    Some(_) => self.table.as_ref().clone().unwrap().render_table(ui),
-                    _ => None,
-                };
-
-                if let Some(filters) = filters {
-                    let future = self.table.as_ref().clone().unwrap().sort(Some(filters));
-                    self.run_data_future(Box::new(Box::pin(future)), ctx);
-                }
-            });
-            */
+                },
+                _ => {
+                    ui.centered_and_justified(|ui| {
+                        ui.label("Drag and drop parquet file here.");
+                    });
+                },
+            };
 
             if self.check_data_pending() {
                 ui.set_enabled(false);
@@ -317,10 +306,6 @@ impl eframe::App for ParqBenchApp {
                         ui.spinner();
                     });
                 }
-            } else if self.table.as_ref().is_none() {
-                ui.centered_and_justified(|ui| {
-                    ui.label("Drag and drop parquet file here.");
-                });
             }
         });
     }
