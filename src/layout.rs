@@ -199,7 +199,11 @@ impl eframe::App for ParqBenchApp {
                 ui.horizontal(|ui| {
                     ui.menu_button("File", |ui| {
                         ui.menu_button("About", |ui| {
-                            ui.label("Built with egui");
+                            // https://doc.rust-lang.org/cargo/reference/environment-variables.html
+                            let version = env!("CARGO_PKG_VERSION");
+                            let description =
+                                format!("ParqBench version {version}\nBuilt with egui");
+                            ui.label(description);
                         });
 
                         if ui.button("Open...").clicked() {
