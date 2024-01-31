@@ -50,19 +50,17 @@ fn main() -> eframe::Result<()> {
                     }
                     */
 
-                    let data_filters = match (args.query, args.table_name) {
-                        (Some(query), Some(table_name)) => DataFilters {
-                            query: Some(query),
-                            table_name,
-                            ..Default::default()
-                        },
-                        (Some(query), None) => DataFilters {
-                            query: Some(query),
-                            table_name: TableName::default(),
-                            ..Default::default()
-                        },
-                        _ => DataFilters::default(),
+                    let table_name = match args.table_name {
+                        Some(tn) => tn,
+                        None => TableName::default(),
                     };
+
+                    let data_filters = DataFilters {
+                        query: args.query,
+                        table_name,
+                        ..Default::default()
+                    };
+
                     dbg!(data_filters);
 
                     let future = ParquetData::load(filename);
