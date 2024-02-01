@@ -7,7 +7,7 @@ use datafusion::{
     prelude::{ParquetReadOptions, SessionContext},
 };
 
-use crate::Args;
+use crate::Arguments;
 use std::{ffi::IntoStringError, ffi::OsStr, future::Future, path::Path, str::FromStr, sync::Arc};
 
 pub type DataResult = Result<ParquetData, String>;
@@ -60,7 +60,7 @@ pub struct DataFilters {
 }
 
 impl DataFilters {
-    pub fn debug(args: &Args) {
+    pub fn debug(args: &Arguments) {
         let args = args.clone();
 
         let table_name = match args.table_name {

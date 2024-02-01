@@ -8,6 +8,8 @@ rust-version = "1.75"
 description = "A utility for viewing parquet files built on egui."
 
 [dependencies]
+anstyle = "1.0" # used by clap color
+clap = { version = "4.4", features = ["color", "derive", "env"] }
 egui = "0.25"
 egui_extras = "0.25"
 eframe = { version = "0.25", features = ["persistence"] }
@@ -15,7 +17,6 @@ datafusion = "35.0"
 rfd = { version ="0.13", features = ["file-handle-inner"] }
 tokio = { version = "1.35", features = ["rt", "sync", "rt-multi-thread"] }
 tracing-subscriber = "0.3"
-structopt = "0.3"
 shellexpand = "3.1"
 parquet = "50.0"
 

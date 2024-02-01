@@ -1,6 +1,6 @@
-mod arguments;
+mod args;
 mod components;
 mod data;
 mod layout;
 
-pub use self::{arguments::Args, components::*, data::*, layout::*};
+pub use self::{args::Arguments, components::*, data::*, layout::*};
