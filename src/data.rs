@@ -70,7 +70,7 @@ impl DataFilters {
 
         let data_filters = DataFilters {
             query: args.query,
-            table_name: table_name.clone(),
+            table_name,
             ..Default::default()
         };
 
