@@ -1,5 +1,5 @@
-use crate::TableName;
 use clap::Parser;
+use crate::TableName;
 
 // https://stackoverflow.com/questions/74068168/clap-rs-not-printing-colors-during-help
 fn get_styles() -> clap::builder::Styles {
