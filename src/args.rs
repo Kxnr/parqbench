@@ -1,6 +1,5 @@
 use crate::TableName;
 use clap::Parser;
-use std::path::PathBuf;
 
 // https://stackoverflow.com/questions/74068168/clap-rs-not-printing-colors-during-help
 fn get_styles() -> clap::builder::Styles {
@@ -42,10 +41,6 @@ pub struct Arguments {
     /// Set the parquet filename.
     #[arg(short('f'), long("filename"), required = false)]
     pub filename: Option<String>,
-
-    /// Set the parquet file path.
-    #[arg(short('p'), long("path"), required = false)]
-    pub path: Option<PathBuf>,
 
     /// Set the query.
     #[arg(short('q'), long("query"), required = false, requires = "filename")]
