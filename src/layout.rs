@@ -198,15 +198,7 @@ impl eframe::App for ParqBenchApp {
             menu::bar(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.menu_button("File", |ui| {
-                        ui.menu_button("About", |ui| {
-                            // https://doc.rust-lang.org/cargo/reference/environment-variables.html
-                            let version = env!("CARGO_PKG_VERSION");
-                            let description =
-                                format!("ParqBench version {version}\nBuilt with egui");
-                            ui.label(description);
-                        });
-
-                        if ui.button("Open...").clicked() {
+                        if ui.button("Open").clicked() {
                             if let Ok(filename) = self.runtime.block_on(file_dialog()) {
                                 self.run_data_future(
                                     Box::new(Box::pin(ParquetData::load(filename))),
@@ -216,11 +208,19 @@ impl eframe::App for ParqBenchApp {
                             ui.close_menu();
                         }
 
-                        if ui.button("Settings...").clicked() {
+                        if ui.button("Settings").clicked() {
                             // FIXME: need to manage potential for multiple popovers
                             self.popover = Some(Box::new(Settings {}));
                             ui.close_menu();
                         }
+
+                        ui.menu_button("About", |ui| {
+                            // https://doc.rust-lang.org/cargo/reference/environment-variables.html
+                            let version = env!("CARGO_PKG_VERSION");
+                            let description =
+                                format!("ParqBench version {version}\nBuilt with egui");
+                            ui.label(description);
+                        });
 
                         if ui.button("Quit").clicked() {
                             //frame.close();
