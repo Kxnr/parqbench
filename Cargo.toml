@@ -9,7 +9,7 @@ description = "A utility for viewing parquet files built on egui."
 
 [dependencies]
 anstyle = "1.0" # used by clap color
-clap = { version = "4.4", features = ["color", "derive", "env"] }
+clap = { version = "4.4", features = ["color", "derive"] }
 egui = "0.25"
 egui_extras = "0.25"
 eframe = { version = "0.25", features = ["persistence"] }
