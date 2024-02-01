@@ -45,7 +45,7 @@ pub struct Arguments {
     #[arg(short('q'), long("query"), required = false, requires = "filename")]
     pub query: Option<String>,
 
-    /// Set the query.
+    /// Set the TableName.
     #[arg(short('t'), long("table_name"), required = false, requires = "query")]
     pub table_name: Option<TableName>,
 }
