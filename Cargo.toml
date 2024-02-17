@@ -1,26 +1,53 @@
 [package]
 name = "parqbench"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Connor Keane <connor.keane@kxnr.me"]
-rust-version = "1.64"
+rust-version = "1.75"
 description = "A utility for viewing parquet files built on egui."
+keywords = [
+    "parquet",
+    "open",
+    "read",
+    "view",
+]
 
 [dependencies]
-egui = "~0.19"
-egui_extras = "~0.19"
-eframe = { version = "~0.19", features = ["persistence"] }
-datafusion = "~8"
-rfd = { version ="~0.10", features = ["file-handle-inner"] }
-tokio = { version = "1.21.1", features = ["rt", "sync"] }
+anstyle = "1.0" # used by clap color
+clap = { version = "4.5", features = ["color", "derive"] }
+egui = "0.26"
+egui_extras = "0.26"
+eframe = { version = "0.26", features = ["persistence"] }
+datafusion = "35.0"
+rfd = { version ="0.13", features = ["file-handle-inner"] }
+tokio = { version = "1.36", features = ["rt", "sync", "rt-multi-thread"] }
 tracing-subscriber = "0.3"
-structopt = "~0.3"
-shellexpand = "*"
-parquet = "*"
+shellexpand = "3.1"
+parquet = "50.0"
+
+[lints.rust]
+unsafe_code = "forbid"
 
 [features]
 default = []
 
 [profile.release]
-opt-level = 2
+# https://doc.rust-lang.org/cargo/reference/profiles.html
+debug = false           # No debug info at all.
+strip = "symbols"       # Strip symbols from a binary.
+opt-level = 3           # All optimizations.
+overflow-checks = true  # Panic will occur on overflow.
+lto = true              # Enable link time optimization.
+codegen-units = 1       # Use a single codegen for size optimization.
+panic = "abort"         # Remove traceback information.
+incremental = true      # Save information to disk, improving re-compile times.
+
+[profile.dev]
+opt-level = 1
+
+# Cross-compile a Rust application from Linux to Windows
+# On Manjaro Linux, install with: pacman -S mingw-w64-gcc
+# rustup target list
+# After downloading the target with `rustup target add x86_64-pc-windows-gnu`
+# cargo b -r --target x86_64-unknown-linux-gnu --target x86_64-pc-windows-gnu

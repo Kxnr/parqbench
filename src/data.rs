@@ -1,28 +1,27 @@
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::DFSchema;
-use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::col;
-use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use std::ffi::IntoStringError;
-use std::future::Future;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::path::Path;
-use std::ffi::OsStr;
+use datafusion::{
+    arrow::compute::concat_batches,
+    arrow::{error::ArrowError, record_batch::RecordBatch},
+    common::DFSchema,
+    dataframe::DataFrame,
+    logical_expr::col,
+    prelude::{ParquetReadOptions, SessionContext},
+};
+
+use crate::Arguments;
+use std::{ffi::IntoStringError, ffi::OsStr, future::Future, path::Path, str::FromStr, sync::Arc};
 
 pub type DataResult = Result<ParquetData, String>;
 pub type DataFuture = Box<dyn Future<Output = DataResult> + Unpin + Send + 'static>;
 
 fn get_read_options(filename: &str) -> Option<ParquetReadOptions<'_>> {
-    Path::new(filename).extension().and_then(OsStr::to_str).map(|s| {
-        ParquetReadOptions {file_extension: s, ..Default::default()}
-    })
+    Path::new(filename)
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(|s| ParquetReadOptions {
+            file_extension: s,
+            ..Default::default()
+        })
 }
-
-// fn normalize_path(filename: &str) -> Option<String> {
-//     Path::new(filename).canonicalize().ok()?.to_str().map(|s| format!("file:///{}", s).to_string())
-//     // Path::new(filename).canonicalize().ok()?.to_str().map(|s| s.to_string())
-// }
 
 #[derive(Debug, Clone)]
 pub struct TableName {
@@ -41,13 +40,15 @@ impl FromStr for TableName {
     type Err = IntoStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self { name: s.to_owned() })
+        Ok(Self {
+            name: s.to_string(),
+        })
     }
 }
 
 impl ToString for TableName {
     fn to_string(&self) -> String {
-        self.name.to_owned()
+        self.name.to_string()
     }
 }
 
@@ -56,6 +57,25 @@ pub struct DataFilters {
     pub sort: Option<SortState>,
     pub table_name: TableName,
     pub query: Option<String>,
+}
+
+impl DataFilters {
+    pub fn debug(args: &Arguments) {
+        let args = args.clone();
+
+        let table_name = match args.table_name {
+            Some(tn) => tn,
+            None => TableName::default(),
+        };
+
+        let data_filters = DataFilters {
+            query: args.query,
+            table_name,
+            ..Default::default()
+        };
+
+        dbg!(data_filters);
+    }
 }
 
 #[derive(Clone)]
@@ -73,8 +93,13 @@ pub enum SortState {
     Descending(String),
 }
 
-fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
-    RecordBatch::concat(&batches[0].schema(), &batches).unwrap()
+/// Concatenates an array of RecordBatch into one batch
+///
+/// <https://docs.rs/datafusion/latest/datafusion/common/arrow/compute/kernels/concat/fn.concat_batches.html>
+///
+/// <https://docs.rs/datafusion/latest/datafusion/physical_plan/coalesce_batches/fn.concat_batches.html>
+fn concat_record_batches(batches: &[RecordBatch]) -> Result<RecordBatch, ArrowError> {
+    concat_batches(&batches[0].schema(), batches)
 }
 
 impl ParquetData {
@@ -87,19 +112,29 @@ impl ParquetData {
 
         let ctx = SessionContext::new();
         match ctx
-            .read_parquet(&filename, get_read_options(&filename).ok_or("Could not set read options. Does this file have a valid extension?".to_string())?)
+            .read_parquet(
+                &filename,
+                get_read_options(&filename).ok_or(
+                    "Could not set read options. Does this file have a valid extension?"
+                        .to_string(),
+                )?,
+            )
             .await
         {
-            Ok(df) => {
-                let data = df.collect().await.unwrap();
-                let data = concat_record_batches(data);
-                Ok(ParquetData {
-                    filename,
-                    data,
-                    dataframe: df,
-                    filters: DataFilters::default(),
-                })
-            }
+            Ok(df) => match df.clone().collect().await {
+                Ok(vec_record_batch) => {
+                    let record_batch =
+                        concat_record_batches(&vec_record_batch).map_err(|err| err.to_string())?;
+                    let parquet_data = ParquetData {
+                        filename,
+                        data: record_batch,
+                        dataframe: df.into(),
+                        filters: DataFilters::default(),
+                    };
+                    Ok(parquet_data)
+                }
+                Err(msg) => Err(msg.to_string()),
+            },
             Err(msg) => Err(format!("{}", msg)),
         }
     }
@@ -115,23 +150,26 @@ impl ParquetData {
         ctx.register_parquet(
             filters.table_name.to_string().as_str(),
             &filename,
-            get_read_options(&filename).ok_or("Could not set read options. Does this file have a valid extension?".to_string())?,
+            get_read_options(&filename).ok_or(
+                "Could not set read options. Does this file have a valid extension?".to_string(),
+            )?,
         )
         .await
         .ok();
 
         match &filters.query {
             Some(query) => match ctx.sql(query.as_str()).await {
-                Ok(df) => match df.collect().await {
-                    Ok(data) => {
-                        let data = concat_record_batches(data);
-                        let data = ParquetData {
+                Ok(df) => match df.clone().collect().await {
+                    Ok(vec_record_batch) => {
+                        let record_batch = concat_record_batches(&vec_record_batch)
+                            .map_err(|err| err.to_string())?;
+                        let parquet_data = ParquetData {
                             filename: filename.to_owned(),
-                            data,
-                            dataframe: df,
+                            data: record_batch,
+                            dataframe: df.into(),
                             filters,
                         };
-                        data.sort(None).await
+                        parquet_data.sort(None).await
                     }
                     Err(msg) => Err(msg.to_string()),
                 },
@@ -141,33 +179,54 @@ impl ParquetData {
         }
     }
 
-    pub async fn sort(self, filters: Option<DataFilters>) -> Result<Self, String> {
-        let filters = match filters {
-            Some(filters) => filters,
-            None => self.filters.clone(),
-        };
+    pub async fn sort(self, opt_filters: Option<DataFilters>) -> Result<Self, String> {
+        match opt_filters {
+            Some(filters) => match filters.sort.as_ref() {
+                Some(sort) => {
+                    let (col_name, ascending) = match sort {
+                        SortState::Ascending(col_name) => (col_name, true),
+                        SortState::Descending(col_name) => (col_name, false),
+                        SortState::NotSorted(_col_name) => return Ok(self),
+                    };
 
-        match filters.sort.as_ref() {
-            Some(sort) => {
-                let (_col, ascending) = match sort {
-                    SortState::Ascending(col) => (col, true),
-                    SortState::Descending(col) => (col, false),
-                    _ => panic!(""),
-                };
-                match self.dataframe.sort(vec![col(_col).sort(ascending, false)]) {
-                    Ok(df) => match df.collect().await {
-                        Ok(data) => Ok(ParquetData {
-                            filename: self.filename,
-                            data: concat_record_batches(data),
-                            dataframe: df,
-                            filters,
-                        }),
-                        Err(_) => Err("Error sorting data".to_string()),
-                    },
-                    Err(_) => Err("Could not sort data with given filters".to_string()),
+                    dbg!(sort);
+                    dbg!(col_name);
+                    dbg!(ascending);
+
+                    let df: DataFrame = self.dataframe.as_ref().clone();
+                    let exp = col(col_name).sort(ascending, false);
+                    let sorted = df.sort(vec![exp]);
+
+                    match sorted {
+                        Ok(df) => match df.clone().collect().await {
+                            Ok(vec_record_batch) => {
+                                let record_batch = concat_record_batches(&vec_record_batch)
+                                    .map_err(|err| err.to_string())?;
+                                let parquet_data = ParquetData {
+                                    filename: self.filename,
+                                    data: record_batch,
+                                    dataframe: df.into(),
+                                    filters,
+                                };
+                                Ok(parquet_data)
+                            }
+                            Err(msg) => {
+                                let error_msg = format!("Error sorting data: {msg}!");
+                                Err(error_msg)
+                            }
+                        },
+                        Err(msg) => {
+                            let error_msg1 = format!("Unable to sort column '{col_name}'\n");
+                            let error_msg2 = format!("Selected filter: {filters:?}\n");
+                            let error_msg3 = format!("Error message: {msg}!");
+                            let error_msg = [error_msg1, error_msg2, error_msg3].concat();
+                            Err(error_msg)
+                        }
+                    }
                 }
-            }
-            None => Ok(ParquetData { filters, ..self }),
+                None => Ok(self),
+            },
+            None => Ok(self),
         }
     }
 

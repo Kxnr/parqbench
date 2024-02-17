@@ -1,14 +1,18 @@
+use datafusion::arrow::{datatypes::DataType, util::display::array_value_to_string};
+use egui::{Context, Layout, Response, TextStyle, Ui, WidgetText};
+use egui_extras::{Column, TableBuilder, TableRow};
+use parquet::{
+    basic::ColumnOrder,
+    file::{
+        metadata::{KeyValue, ParquetMetaData},
+        reader::{FileReader, SerializedFileReader},
+    },
+};
+use rfd::AsyncFileDialog;
+use std::{fs::File, path::Path};
+
 use crate::data::{DataFilters, ParquetData, SortState};
 use crate::TableName;
-use datafusion::arrow::{util::display::array_value_to_string, datatypes::DataType};
-use egui::{Context, Response, Ui, WidgetText};
-use egui_extras::{Size, TableBuilder};
-use parquet::basic::ColumnOrder;
-use parquet::file::metadata::{KeyValue, ParquetMetaData};
-use parquet::file::reader::{FileReader, SerializedFileReader};
-use rfd::AsyncFileDialog;
-use std::fs::File;
-use std::path::Path;
 
 pub trait Popover {
     fn show(&mut self, ctx: &Context) -> bool;
@@ -83,7 +87,9 @@ impl QueryPane {
                 self.filename.clone(),
                 DataFilters {
                     query: Some(self.query.clone()),
-                    table_name: TableName {name: self.table_name.clone() },
+                    table_name: TableName {
+                        name: self.table_name.clone(),
+                    },
                     ..Default::default()
                 },
             ))
@@ -163,7 +169,7 @@ impl FileMetadata {
 
 impl ParquetData {
     pub fn render_table(&self, ui: &mut Ui) -> Option<DataFilters> {
-        let style = &ui.style().clone();
+        let style = ui.style().as_ref();
 
         fn is_sorted_column(sorted_col: &Option<SortState>, col: String) -> bool {
             match sorted_col {
@@ -179,9 +185,9 @@ impl ParquetData {
         let mut filters: Option<DataFilters> = None;
         let mut sorted_column = self.filters.sort.clone();
 
-        let text_height = egui::TextStyle::Body.resolve(style).size;
+        let text_height = TextStyle::Body.resolve(style).size;
 
-        let initial_col_width = (ui.available_width() - style.spacing.scroll_bar_width)
+        let initial_col_width = (ui.available_width() - style.spacing.scroll.bar_width)
             / (self.data.num_columns() + 1) as f32;
 
         // stop columns from resizing to smaller than the window--remainder stops the last column
@@ -192,79 +198,89 @@ impl ParquetData {
             initial_col_width / 4.0
         };
 
-        let header_height = style.spacing.interact_size.y + (2.0f32 * style.spacing.item_spacing.y);
+        let header_height = style.spacing.interact_size.y + 2.0f32 * style.spacing.item_spacing.y;
 
-        // FIXME: this will certainly break if there are no columns
-        TableBuilder::new(ui)
-            .striped(true)
-            .stick_to_bottom(true)
-            .clip(true)
-            .columns(
-                Size::initial(initial_col_width).at_least(min_col_width),
-                self.data.num_columns(),
-            )
+        //ui.set_width(ui.available_width());
+        ui.set_height(ui.available_height());
+        //ui.set_min_size(ui.available_size());
+
+        // https://github.com/emilk/egui/issues/3680
+        let column = Column::initial(initial_col_width)
+            .at_least(min_col_width)
             .resizable(true)
-            .header(header_height, |mut header| {
-                for field in self.data.schema().fields() {
-                    header.col(|ui| {
-                        let column_label =
-                            if is_sorted_column(&sorted_column, field.name().to_string()) {
-                                sorted_column.clone().unwrap()
-                            } else {
-                                SortState::NotSorted(field.name().to_string())
-                            };
-                        ui.horizontal_centered(|ui| {
-                            let response = ui.sort_button(&mut sorted_column, column_label.clone());
-                            if response.clicked() {
-                                filters = Some(DataFilters {
-                                    sort: sorted_column.clone(),
-                                    ..self.filters.clone()
-                                });
-                            }
-                        });
-                    });
-                }
-            })
-            .body(|body| {
-                body.rows(
-                    text_height,
-                    self.data.num_rows(),
-                    |row_index, mut row| {
-                        for data_col in self.data.columns() {
-                            row.col(|ui| {
-                                // while not efficient (as noted in docs) we need to display
-                                // at most a few dozen records at a time (barring pathological
-                                // tables with absurd numbers of columns) and should still
-                                // have conversion times on the order of ns.
-                                ui.with_layout(
+            .clip(true);
 
-
-                                    if is_integer(data_col.data_type()) {
-                                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight)
-                                    } else if is_float(data_col.data_type()) {
-                                        egui::Layout::right_to_left(egui::Align::Center)
-                                    } else {
-                                        egui::Layout::left_to_right(egui::Align::Center)
-                                    }.with_main_wrap(false),
-
-                                    /*
-                                    match data_col.data_type() {
-                                        DataType::Float64 | DataType::Float32 => egui::Layout::right_to_left(egui::Align::Center).with_main_wrap(false),
-                                        _ => egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(false),
-                                    },
-                                    */
-
-                                    |ui| {
-                                        let value =
-                                            array_value_to_string(data_col, row_index).unwrap();
-                                        ui.label(value);
-                                    },
-                                );
+        let analyze_header = |mut table_row: TableRow<'_, '_>| {
+            for field in self.data.schema().fields() {
+                table_row.col(|ui| {
+                    let column_label = if is_sorted_column(&sorted_column, field.name().to_string())
+                    {
+                        sorted_column.clone().unwrap()
+                    } else {
+                        SortState::NotSorted(field.name().to_string())
+                    };
+                    //ui.centered_and_justified(|ui| {
+                    ui.horizontal_centered(|ui| {
+                        let response = ui.sort_button(&mut sorted_column, column_label.clone());
+                        if response.clicked() {
+                            filters = Some(DataFilters {
+                                sort: sorted_column.clone(),
+                                ..self.filters.clone()
                             });
                         }
-                    },
-                );
+                    });
+                });
+            }
+        };
+
+        let analyze_rows = |mut table_row: TableRow<'_, '_>| {
+            for data_col in self.data.columns() {
+                let row_index = table_row.index();
+                table_row.col(|ui| {
+                    // while not efficient (as noted in docs) we need to display
+                    // at most a few dozen records at a time (barring pathological
+                    // tables with absurd numbers of columns) and should still
+                    // have conversion times on the order of ns.
+                    ui.with_layout(
+                        if is_integer(data_col.data_type()) {
+                            Layout::centered_and_justified(egui::Direction::LeftToRight)
+                        } else if is_float(data_col.data_type()) {
+                            Layout::right_to_left(egui::Align::Center)
+                        } else {
+                            Layout::left_to_right(egui::Align::Center)
+                        }
+                        .with_main_wrap(false),
+                        |ui| {
+                            let value: String =
+                                array_value_to_string(data_col, row_index).unwrap_or_default();
+                            /*
+                            if is_float(data_col.data_type()) {
+                                // convert string to floating point number
+                                value = match value.parse::<f64>() {
+                                    Ok(float) => format!("{float:0.4}"),
+                                    Err(_) => value,
+                                }
+                            }
+                            */
+                            ui.label(value);
+                        },
+                    );
+                });
+            }
+        };
+
+        TableBuilder::new(ui)
+            .striped(false) // false: takes all available height
+            .columns(column, self.data.num_columns())
+            .column(Column::remainder())
+            .auto_shrink([false, false])
+            .min_scrolled_height(1000.0)
+            .header(header_height, analyze_header)
+            .body(|body| {
+                let num_rows = self.data.num_rows();
+                body.rows(text_height, num_rows, analyze_rows);
             });
+
         filters
     }
 }
@@ -273,23 +289,13 @@ fn is_integer(t: &DataType) -> bool {
     use DataType::*;
     matches!(
         t,
-        UInt8
-            | UInt16
-            | UInt32
-            | UInt64
-            | Int8
-            | Int16
-            | Int32
-            | Int64
+        UInt8 | UInt16 | UInt32 | UInt64 | Int8 | Int16 | Int32 | Int64
     )
 }
 
 fn is_float(t: &DataType) -> bool {
     use DataType::*;
-    matches!(
-        t,
-        Float32 | Float64
-    )
+    matches!(t, Float32 | Float64)
 }
 
 impl SelectionDepth<String> for SortState {
@@ -364,13 +370,10 @@ impl ExtraInteractions for Ui {
 }
 
 pub async fn file_dialog() -> Result<String, String> {
-    let file = AsyncFileDialog::new().pick_file().await;
+    let opt_file_handle = AsyncFileDialog::new().pick_file().await;
 
-    if let Some(file) = file {
-        file.inner()
-            .to_str()
-            .ok_or_else(|| "Could not parse path.".to_string())
-            .map(|s| s.to_string())
+    if let Some(file_handle) = opt_file_handle {
+        Ok(file_handle.file_name())
     } else {
         Err("No file loaded.".to_string())
     }
