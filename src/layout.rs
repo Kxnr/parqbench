@@ -3,7 +3,7 @@ use egui::{
     style::Visuals,
     warn_if_debug_build, widgets, CentralPanel, Context,
     FontFamily::Proportional,
-    FontId, ScrollArea, SidePanel,
+    FontId, RichText, ScrollArea, SidePanel,
     TextStyle::{Body, Button, Heading, Monospace, Small},
     TopBottomPanel, ViewportCommand,
 };
@@ -217,9 +217,11 @@ impl eframe::App for ParqBenchApp {
                         ui.menu_button("About", |ui| {
                             // https://doc.rust-lang.org/cargo/reference/environment-variables.html
                             let version = env!("CARGO_PKG_VERSION");
-                            let description =
-                                format!("ParqBench version {version}\nBuilt with egui");
-                            ui.label(description);
+                            let authors = env!("CARGO_PKG_AUTHORS");
+                            ui.label(RichText::new("ParqBench").font(FontId::proportional(25.0)));
+                            ui.label(format!("Version: {version}"));
+                            ui.label(format!("Author: {authors}"));
+                            ui.label("Built with egui");
                         });
 
                         if ui.button("Quit").clicked() {

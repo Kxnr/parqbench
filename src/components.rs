@@ -202,7 +202,7 @@ impl ParquetData {
 
         //ui.set_width(ui.available_width());
         ui.set_height(ui.available_height());
-        //ui.set_max_size(ui.available_size());
+        //ui.set_min_size(ui.available_size());
 
         // https://github.com/emilk/egui/issues/3680
         let column = Column::initial(initial_col_width)
