@@ -120,19 +120,19 @@ impl ParqBenchApp {
 }
 
 impl eframe::App for ParqBenchApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         //////////
         // Frame setup. Check if various interactions are in progress and resolve them
         //////////
 
         self.check_popover(ctx);
 
-        if !ctx.input().raw.dropped_files.is_empty() {
-            // FIXME: unsafe unwraps
-            let file: egui::DroppedFile = ctx.input().raw.dropped_files.last().unwrap().clone();
-            let filename = file.path.unwrap().to_str().unwrap().to_string();
-            self.run_data_future(Box::new(Box::pin(ParquetData::load(filename))), ctx);
-        }
+        ctx.input(|i| {
+            if let Some(file) = i.raw.dropped_files.last().clone() {
+                let filename = file.path.as_ref().unwrap().to_str().unwrap().to_string();
+                self.run_data_future(Box::new(Box::pin(ParquetData::load(filename))), ctx);
+            }
+        });
 
         //////////
         // Main UI layout.
@@ -176,7 +176,7 @@ impl eframe::App for ParqBenchApp {
                     }
 
                     if ui.button("Quit").clicked() {
-                        frame.close();
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
             });

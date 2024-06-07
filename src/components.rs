@@ -1,8 +1,8 @@
 use crate::data::{DataFilters, ParquetData, SortState};
 use crate::TableName;
-use datafusion::arrow::{util::display::array_value_to_string, datatypes::DataType};
+use datafusion::arrow::{datatypes::DataType, util::display::array_value_to_string};
 use egui::{Context, Response, Ui, WidgetText};
-use egui_extras::{Size, TableBuilder};
+use egui_extras::{Column, TableBuilder};
 use parquet::basic::ColumnOrder;
 use parquet::file::metadata::{KeyValue, ParquetMetaData};
 use parquet::file::reader::{FileReader, SerializedFileReader};
@@ -83,7 +83,9 @@ impl QueryPane {
                 self.filename.clone(),
                 DataFilters {
                     query: Some(self.query.clone()),
-                    table_name: TableName {name: self.table_name.clone() },
+                    table_name: TableName {
+                        name: self.table_name.clone(),
+                    },
                     ..Default::default()
                 },
             ))
@@ -181,8 +183,7 @@ impl ParquetData {
 
         let text_height = egui::TextStyle::Body.resolve(style).size;
 
-        let initial_col_width = (ui.available_width() - style.spacing.scroll_bar_width)
-            / (self.data.num_columns() + 1) as f32;
+        let initial_col_width = ui.available_width() / (self.data.num_columns() + 1) as f32;
 
         // stop columns from resizing to smaller than the window--remainder stops the last column
         // growing, which we explicitly want to allow for the case of large datatypes.
@@ -198,9 +199,10 @@ impl ParquetData {
         TableBuilder::new(ui)
             .striped(true)
             .stick_to_bottom(true)
-            .clip(true)
             .columns(
-                Size::initial(initial_col_width).at_least(min_col_width),
+                Column::initial(initial_col_width)
+                    .at_least(min_col_width)
+                    .clip(true),
                 self.data.num_columns(),
             )
             .resizable(true)
@@ -226,44 +228,33 @@ impl ParquetData {
                 }
             })
             .body(|body| {
-                body.rows(
-                    text_height,
-                    self.data.num_rows(),
-                    |row_index, mut row| {
-                        for data_col in self.data.columns() {
-                            row.col(|ui| {
-                                // while not efficient (as noted in docs) we need to display
-                                // at most a few dozen records at a time (barring pathological
-                                // tables with absurd numbers of columns) and should still
-                                // have conversion times on the order of ns.
-                                ui.with_layout(
-
-
-                                    if is_integer(data_col.data_type()) {
-                                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight)
-                                    } else if is_float(data_col.data_type()) {
-                                        egui::Layout::right_to_left(egui::Align::Center)
-                                    } else {
-                                        egui::Layout::left_to_right(egui::Align::Center)
-                                    }.with_main_wrap(false),
-
-                                    /*
-                                    match data_col.data_type() {
-                                        DataType::Float64 | DataType::Float32 => egui::Layout::right_to_left(egui::Align::Center).with_main_wrap(false),
-                                        _ => egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(false),
-                                    },
-                                    */
-
-                                    |ui| {
-                                        let value =
-                                            array_value_to_string(data_col, row_index).unwrap();
-                                        ui.label(value);
-                                    },
-                                );
-                            });
-                        }
-                    },
-                );
+                body.rows(text_height, self.data.num_rows(), |mut row| {
+                    for data_col in self.data.columns() {
+                        let index = row.index();
+                        row.col(|ui| {
+                            // while not efficient (as noted in docs) we need to display
+                            // at most a few dozen records at a time (barring pathological
+                            // tables with absurd numbers of columns) and should still
+                            // have conversion times on the order of ns.
+                            ui.with_layout(
+                                if is_integer(data_col.data_type()) {
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    )
+                                } else if is_float(data_col.data_type()) {
+                                    egui::Layout::right_to_left(egui::Align::Center)
+                                } else {
+                                    egui::Layout::left_to_right(egui::Align::Center)
+                                }
+                                .with_main_wrap(false),
+                                |ui| {
+                                    let value = array_value_to_string(data_col, index).unwrap();
+                                    ui.label(value);
+                                },
+                            );
+                        });
+                    }
+                });
             });
         filters
     }
@@ -273,23 +264,13 @@ fn is_integer(t: &DataType) -> bool {
     use DataType::*;
     matches!(
         t,
-        UInt8
-            | UInt16
-            | UInt32
-            | UInt64
-            | Int8
-            | Int16
-            | Int32
-            | Int64
+        UInt8 | UInt16 | UInt32 | UInt64 | Int8 | Int16 | Int32 | Int64
     )
 }
 
 fn is_float(t: &DataType) -> bool {
     use DataType::*;
-    matches!(
-        t,
-        Float32 | Float64
-    )
+    matches!(t, Float32 | Float64)
 }
 
 impl SelectionDepth<String> for SortState {

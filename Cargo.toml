@@ -4,18 +4,18 @@ version = "0.2.2"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Connor Keane <connor.keane@kxnr.me"]
-rust-version = "1.64"
+rust-version = "1.78"
 description = "A utility for viewing parquet files built on egui."
 
 [dependencies]
-egui = "~0.19"
-egui_extras = "~0.19"
-eframe = { version = "~0.19", features = ["persistence"] }
-datafusion = "~8"
-rfd = { version ="~0.10", features = ["file-handle-inner"] }
-tokio = { version = "1.21.1", features = ["rt", "sync"] }
+egui = "0.27"
+egui_extras = "0.27"
+eframe = { version = "0.27", features = ["persistence"] }
+datafusion = "38"
+rfd = { version ="0.14", features = ["file-handle-inner"] }
+tokio = { version = "1.38.0", features = ["rt-multi-thread"] }
 tracing-subscriber = "0.3"
-structopt = "~0.3"
+structopt = "0.3"
 shellexpand = "*"
 parquet = "*"
 

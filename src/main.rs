@@ -29,7 +29,9 @@ fn main() {
     let args = Args::from_args();
 
     let options = eframe::NativeOptions {
-        drag_and_drop_support: true,
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([320.0, 240.0])
+            .with_drag_and_drop(true),
         ..Default::default()
     };
 
