@@ -1,19 +1,47 @@
+#[macro_use]
+extern crate derive_builder;
+
 use datafusion::arrow::compute::concat_batches;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::DFSchema;
-use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::col;
+use datafusion::logical_expr::col as col_expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use std::ffi::IntoStringError;
 use std::ffi::OsStr;
 use std::future::Future;
 use std::path::Path;
-use std::str::FromStr;
 
-pub type DataResult = Result<ParquetData, String>;
+use anyhow::anyhow;
+
+pub type DataResult = anyhow::Result<Data>;
 pub type DataFuture = Box<dyn Future<Output = DataResult> + Unpin + Send + 'static>;
 
-fn get_read_options(filename: &str) -> Option<ParquetReadOptions<'_>> {
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum SortState {
+    NotSorted,
+    Ascending,
+    Descending,
+}
+
+#[derive(Clone)]
+pub enum Query {
+    TableName(String),
+    Sql(String),
+}
+
+#[derive(Default)]
+pub struct DataSource {
+    ctx: SessionContext,
+    // TODO: create a separate container to hold data for separate tabs
+}
+
+pub struct Data {
+    // TOOD: arc context into this struct?
+    pub data: RecordBatch,
+    pub query: Query,
+    pub sort_state: Option<(String, SortState)>,
+}
+
+fn get_read_options(filename: &str) -> anyhow::Result<ParquetReadOptions<'_>> {
+    // TODO: use this to decide the format to load the file in, with user configurable extensions
     Path::new(filename)
         .extension()
         .and_then(OsStr::to_str)
@@ -21,61 +49,9 @@ fn get_read_options(filename: &str) -> Option<ParquetReadOptions<'_>> {
             file_extension: s,
             ..Default::default()
         })
-}
-
-#[derive(Debug, Clone)]
-pub struct TableName {
-    pub name: String,
-}
-
-impl Default for TableName {
-    fn default() -> Self {
-        Self {
-            name: "main".to_string(),
-        }
-    }
-}
-
-impl FromStr for TableName {
-    type Err = IntoStringError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self { name: s.to_owned() })
-    }
-}
-
-impl ToString for TableName {
-    fn to_string(&self) -> String {
-        self.name.to_owned()
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct DataFilters {
-    pub sort: Option<SortState>,
-    pub table_name: TableName,
-    pub query: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct ParquetData {
-    pub filename: String,
-    pub data: RecordBatch,
-    pub filters: DataFilters,
-    pub schema: DFSchema,
-}
-
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub enum SortState {
-    NotSorted(String),
-    Ascending(String),
-    Descending(String),
-}
-
-trait DataSource {
-    // TODO: persist context with registered data sources, which we then load with `table`, rather
-    // TODO: than calling read* methods directly
-    async fn get_dataframe(filename: &str) -> Result<DataFrame, String>;
+        .ok_or(anyhow!(
+            "Could not parse filename, does this file have an extension?"
+        ))
 }
 
 fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
@@ -85,119 +61,92 @@ fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
     concat_batches(&batches[0].schema(), batches.iter()).unwrap()
 }
 
-impl DataSource for ParquetData {
-    async fn get_dataframe(filename: &str) -> Result<DataFrame, String> {
-        let ctx = SessionContext::new();
-        ctx.read_parquet(
-            filename,
-            get_read_options(filename).ok_or(
-                "Could not set read options. Does this file have a valid extension?".to_string(),
-            )?,
-        )
-        .await
-        .or_else(|err| Err(format!("{}", err)))
+impl DataSource {
+    pub async fn add_data_source(&mut self, filename: String) -> anyhow::Result<String> {
+        // TODO: pass in data source name
+        // TODO: multiple formats, partitioned datasets
+        let file_name = shellexpand::full(&filename)?.to_string();
+
+        let table_name = Path::new(&file_name)
+            .file_stem()
+            .map_or(file_name.as_str(), |v| {
+                v.to_str()
+                    // TODO: ? might help here to make this a recoverable error
+                    .expect("Could not convert filename to default table name")
+            });
+
+        self.ctx
+            .register_parquet(&table_name, &file_name, get_read_options(&filename)?)
+            .await?;
+
+        Ok(table_name.to_owned())
+    }
+
+    pub async fn query(&mut self, query: Query) -> anyhow::Result<Data> {
+        // TODO: can this be chained, rather than mut-assigned?
+        let df = match &query {
+            Query::TableName(table) => self.ctx.table(table).await?,
+            Query::Sql(query) => self.ctx.sql(&query).await?,
+        };
+
+        let data = df.collect().await?;
+
+        Ok(Data {
+            // TODO: will record batches have the same schema, or should these really be
+            // TODO: separate data entries?
+            data: concat_record_batches(data),
+            query,
+            sort_state: None,
+        })
     }
 }
 
-impl ParquetData {
-    pub async fn load(filename: String) -> Result<Self, String> {
-        let filename = shellexpand::full(&filename)
-            .map_err(|err| err.to_string())?
-            .to_string();
-
-        dbg!(&filename);
-
-        match ParquetData::get_dataframe(&filename).await {
-            Ok(df) => {
-                let schema = df.schema().clone();
-                // TODO: unsafe unwrap
-                let data = df.collect().await.expect("Could not execute plan");
-                Ok(ParquetData {
-                    filename,
-                    data: concat_record_batches(data),
-                    filters: DataFilters::default(),
-                    schema,
-                })
-            }
-            Err(msg) => Err(format!("{}", msg)),
-        }
-    }
-
-    pub async fn load_with_query(filename: String, filters: DataFilters) -> Result<Self, String> {
-        let filename = shellexpand::full(&filename)
-            .map_err(|err| err.to_string())?
-            .to_string();
-
-        dbg!(&filename);
-
+impl Data {
+    // TODO: support actions, like timezone conversion on columns
+    pub async fn sort(self, col: String, sort: SortState) -> anyhow::Result<Self> {
+        // TODO: would be nice to do this without cloning, though there's always a tradeoff here--
+        // if this is done in place, there's no data to display in the meantime
         let ctx = SessionContext::new();
-        ctx.register_parquet(
-            filters.table_name.to_string().as_str(),
-            &filename,
-            get_read_options(&filename).ok_or(
-                "Could not set read options. Does this file have a valid extension?".to_string(),
-            )?,
-        )
-        .await
-        .ok();
-
-        match &filters.query {
-            Some(query) => match ctx.sql(query.as_str()).await {
-                Ok(df) => {
-                    let schema = df.schema().clone();
-                    match df.collect().await {
-                        Ok(data) => {
-                            let data = ParquetData {
-                                filename: filename.to_owned(),
-                                data: concat_record_batches(data),
-                                filters,
-                                schema,
-                            };
-                            data.sort(None).await
-                        }
-                        Err(msg) => Err(msg.to_string()),
-                    }
-                }
-                Err(msg) => Err(msg.to_string()), // two classes of error, sql and file
-            },
-            None => Err("No query provided".to_string()),
-        }
-    }
-
-    pub async fn sort(self, filters: Option<DataFilters>) -> Result<Self, String> {
-        let filters = match filters {
-            Some(filters) => filters,
-            None => self.filters.clone(),
+        let mut df = ctx.read_batch(self.data.clone())?;
+        df = match &sort {
+            SortState::Ascending => df.sort(vec![col_expr(&col).sort(true, false)])?,
+            SortState::Descending => df.sort(vec![col_expr(&col).sort(false, false)])?,
+            _ => df,
         };
 
-        match filters.sort.as_ref() {
-            Some(sort) => {
-                let (_col, ascending) = match sort {
-                    SortState::Ascending(col) => (col, true),
-                    SortState::Descending(col) => (col, false),
-                    _ => panic!(""),
-                };
-                match ParquetData::get_dataframe(&self.filename)
-                    .await?
-                    .sort(vec![col(_col).sort(ascending, false)])
-                {
-                    Ok(df) => {
-                        let schema = df.schema().clone();
+        let data = df.collect().await?;
 
-                        match df.collect().await {
-                            Ok(data) => Ok(ParquetData {
-                                filename: self.filename,
-                                data: concat_record_batches(data),
-                                filters,
-                                schema,
-                            }),
-                            Err(_) => Err("Error sorting data".to_string()),
-                        }
-                    }
-                    Err(_) => Err("Could not sort data with given filters".to_string()),
-                }
-            }
-            None => Ok(ParquetData { filters, ..self }),
-        }
+        Ok(Data {
+            // TODO: will record batches have the same schema, or should these really be
+            // TODO: separate data entries?
+            data: concat_record_batches(data),
+            query: self.query,
+            sort_state: Some((col, sort)),
+        })
     }
+
+    // TODO: querying from a df isn't entirely straightforward, but would be nice. It seems like
+    // TODO: the easiest way is going to be to use an in memory table provider or similar. This may
+    // TODO: end up needing to expose filter/select rather than sql, unless there's a good way to
+    // TODO: build Expr instances. Notably because there's not really a table name here unless we
+    // TODO: assign one.
+    // pub async fn query(&mut self, query: Query) -> anyhow::Result<Self> {
+    //     // TODO: can this be chained, rather than mut-assigned?
+    //     let ctx = SessionContext::new();
+    //     let df = ctx.read_batch(self.data.clone())?;
+    //     let df = match &query {
+    //         Query::Sql(query) => ctx.sql(&query).await?,
+    //         _ => Err(anyhow!("In memory tables only support SQL queries."))?,
+    //     };
+
+    //     let data = df.collect().await?;
+
+    //     Ok(Data {
+    //         // TODO: will record batches have the same schema, or should these really be
+    //         // TODO: separate data entries?
+    //         data: concat_record_batches(data),
+    //         query,
+    //         sort_state: None,
+    //     })
+    // }
 }

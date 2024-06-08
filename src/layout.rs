@@ -1,27 +1,29 @@
 use eframe;
 
-use crate::components::{file_dialog, Error, FileMetadata, Popover, QueryPane, Settings};
+use crate::{
+    components::{file_dialog, Popover, Settings},
+    data::{Data, DataFuture, DataResult, DataSource, Query},
+};
 use core::default::Default;
 use std::sync::Arc;
 use tokio::sync::oneshot::error::TryRecvError;
 
-use crate::data::{DataFilters, DataFuture, DataResult, ParquetData};
-
 pub struct ParqBenchApp {
-    pub table: Arc<Option<ParquetData>>,
-    pub query_pane: QueryPane,
-    pub metadata: Option<FileMetadata>,
+    data_source: DataSource,
+    current_data: Option<Data>,
+    query: Query,
     pub popover: Option<Box<dyn Popover>>,
 
     runtime: tokio::runtime::Runtime,
-    pipe: Option<tokio::sync::oneshot::Receiver<Result<ParquetData, String>>>,
+    pipe: Option<tokio::sync::oneshot::Receiver<DataResult>>,
 }
 
 impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
-            table: Arc::new(None),
-            query_pane: QueryPane::new(None, DataFilters::default()),
+            data_source: DataSource::default(),
+            query: Query::Sql("".to_owned()),
+            current_data: None,
             runtime: tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(1)
                 .enable_all()
@@ -29,7 +31,6 @@ impl Default for ParqBenchApp {
                 .unwrap(),
             pipe: None,
             popover: None,
-            metadata: None,
         }
     }
 }
@@ -50,7 +51,7 @@ impl ParqBenchApp {
 
     pub fn check_popover(&mut self, ctx: &egui::Context) {
         if let Some(popover) = &mut self.popover {
-            if !popover.show(ctx) {
+            if !popover.popover(ctx) {
                 self.popover = None;
             }
         }
@@ -63,16 +64,7 @@ impl ParqBenchApp {
             Some(output) => match output.try_recv() {
                 Ok(data) => match data {
                     Ok(data) => {
-                        self.query_pane =
-                            QueryPane::new(Some(data.filename.clone()), data.filters.clone());
-                        self.metadata = if let Ok(metadata) =
-                            FileMetadata::from_filename(data.filename.as_str())
-                        {
-                            Some(metadata)
-                        } else {
-                            None
-                        };
-                        self.table = Arc::new(Some(data));
+                        self.current_data = Some(data);
                         self.pipe = None;
                         false
                     }
@@ -86,9 +78,9 @@ impl ParqBenchApp {
                     TryRecvError::Empty => true,
                     TryRecvError::Closed => {
                         self.pipe = None;
-                        self.popover = Some(Box::new(Error {
-                            message: "Data operation terminated without response.".to_string(),
-                        }));
+                        self.popover = Some(anyhow::anyhow!(
+                            "Data operation terminated without response."
+                        ));
                         false
                     }
                 },
