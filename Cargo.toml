@@ -16,7 +16,6 @@ rfd = { version ="0.14", features = ["file-handle-inner"] }
 tracing-subscriber = "0.3"
 structopt = "0.3"
 shellexpand = "*"
-parquet = "*"
 anyhow = "1.0.86"
 egui-file-dialog = "0.5.0"
 egui_json_tree = "0.5.1"
