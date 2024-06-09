@@ -1,55 +1,95 @@
 use eframe;
 
 use crate::{
-    components::{file_dialog, Popover, Settings},
-    data::{Data, DataFuture, DataResult, DataSource, Query},
+    components::{file_dialog, Action, Popover, Settings, Show},
+    data::{Data, DataResult, DataSource, Query},
 };
+use anyhow::anyhow;
 use core::default::Default;
+use smol::lock::RwLock;
+use smol::Task;
 use std::sync::Arc;
-use tokio::sync::oneshot::error::TryRecvError;
 
 pub struct ParqBenchApp {
-    data_source: DataSource,
+    data_source: Arc<RwLock<DataSource>>,
     current_data: Option<Data>,
     query: Query,
-    pub popover: Option<Box<dyn Popover>>,
-
-    runtime: tokio::runtime::Runtime,
-    pipe: Option<tokio::sync::oneshot::Receiver<DataResult>>,
+    popover: Option<Box<dyn Popover>>,
+    data_future: Option<Task<DataResult>>,
 }
 
 impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
-            data_source: DataSource::default(),
+            data_source: Arc::new(RwLock::new(DataSource::default())),
             query: Query::Sql("".to_owned()),
             current_data: None,
-            runtime: tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(1)
-                .enable_all()
-                .build()
-                .unwrap(),
-            pipe: None,
             popover: None,
+            data_future: None,
         }
     }
 }
 
 impl ParqBenchApp {
-    // TODO: re-export load, query, and sort.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         cc.egui_ctx.set_visuals(egui::style::Visuals::dark());
         Default::default()
     }
 
-    pub fn new_with_future(cc: &eframe::CreationContext<'_>, future: DataFuture) -> Self {
-        let mut app: Self = Default::default();
-        cc.egui_ctx.set_visuals(egui::style::Visuals::dark());
-        app.run_data_future(future, &cc.egui_ctx);
-        app
+    pub fn handle_action(&mut self, action: Action) {
+        // does this need a return type?
+        dbg!(&action);
+        match action {
+            Action::AddSource(filename) => {
+                let data_source = self.data_source.clone();
+                smol::spawn(async move {
+                    data_source
+                        .clone()
+                        .write()
+                        .await
+                        .add_data_source(filename)
+                        .await;
+                })
+                .detach();
+            }
+            Action::QuerySource(query) => {
+                let data_source = self.data_source.clone();
+                self.data_future = Some(smol::spawn(async move {
+                    data_source.read().await.query(query).await
+                }));
+            }
+            Action::LoadSource(filename) => {
+                let data_source = self.data_source.clone();
+                self.data_future = Some(smol::spawn(async move {
+                    let table_name = data_source
+                        .clone()
+                        .write()
+                        .await
+                        .add_data_source(filename)
+                        .await?;
+                    dbg!(&table_name);
+                    data_source
+                        .clone()
+                        .read()
+                        .await
+                        .query(Query::TableName(table_name))
+                        .await
+                }));
+            }
+            Action::SortData((col, sort_state)) => {
+                // TODO: just block here, user shouldn't really do anything and it saves us a
+                if let Some(data) = self.current_data.as_mut() {
+                    let cloned_data = data.to_owned();
+                    self.data_future = Some(smol::spawn(async move {
+                        cloned_data.sort(col, sort_state).await
+                    }));
+                }
+            }
+            _ => {}
+        };
     }
 
-    pub fn check_popover(&mut self, ctx: &egui::Context) {
+    fn check_popover(&mut self, ctx: &egui::Context) {
         if let Some(popover) = &mut self.popover {
             if !popover.popover(ctx) {
                 self.popover = None;
@@ -57,57 +97,24 @@ impl ParqBenchApp {
         }
     }
 
-    pub fn check_data_pending(&mut self) -> bool {
+    fn check_data_future(&mut self) -> bool {
         // hide implementation details of waiting for data to load
         // FIXME: should do some error handling/notification
-        match &mut self.pipe {
-            Some(output) => match output.try_recv() {
-                Ok(data) => match data {
+        if let Some(future) = self.data_future.as_mut() {
+            if future.is_finished() {
+                match smol::block_on(future) {
                     Ok(data) => {
                         self.current_data = Some(data);
-                        self.pipe = None;
-                        false
                     }
-                    Err(msg) => {
-                        self.pipe = None;
-                        self.popover = Some(Box::new(Error { message: msg }));
-                        false
-                    }
-                },
-                Err(e) => match e {
-                    TryRecvError::Empty => true,
-                    TryRecvError::Closed => {
-                        self.pipe = None;
-                        self.popover = Some(anyhow::anyhow!(
-                            "Data operation terminated without response."
-                        ));
-                        false
-                    }
-                },
-            },
-            _ => false,
+                    Err(_) => self.popover = Some(Box::new(anyhow!("Failed to load data"))),
+                };
+                self.data_future = None;
+            };
+            // This will switch from true to false one frame late, but makes this logic simple
+            true
+        } else {
+            false
         }
-    }
-
-    pub fn run_data_future(&mut self, future: DataFuture, ctx: &egui::Context) {
-        if self.check_data_pending() {
-            // FIXME, use vec of tasks?
-            panic!("Cannot schedule future when future already running");
-        }
-        let (tx, rx) = tokio::sync::oneshot::channel::<Result<ParquetData, String>>();
-        self.pipe = Some(rx);
-
-        async fn inner(
-            future: DataFuture,
-            ctx: egui::Context,
-            tx: tokio::sync::oneshot::Sender<DataResult>,
-        ) {
-            let data = future.await;
-            let _result = tx.send(data);
-            ctx.request_repaint();
-        }
-
-        self.runtime.spawn(inner(future, ctx.clone(), tx));
     }
 }
 
@@ -118,11 +125,12 @@ impl eframe::App for ParqBenchApp {
         //////////
 
         self.check_popover(ctx);
+        let loading = self.check_data_future();
 
         ctx.input(|i| {
             if let Some(file) = i.raw.dropped_files.last().clone() {
                 let filename = file.path.as_ref().unwrap().to_str().unwrap().to_string();
-                self.run_data_future(Box::new(Box::pin(ParquetData::load(filename))), ctx);
+                self.handle_action(Action::LoadSource(filename));
             }
         });
 
@@ -152,11 +160,8 @@ impl eframe::App for ParqBenchApp {
                     });
 
                     if ui.button("Open...").clicked() {
-                        if let Ok(filename) = self.runtime.block_on(file_dialog()) {
-                            self.run_data_future(
-                                Box::new(Box::pin(ParquetData::load(filename))),
-                                ctx,
-                            );
+                        if let Ok(filename) = smol::block_on(file_dialog()) {
+                            self.handle_action(Action::LoadSource(filename));
                         }
                         ui.close_menu();
                     }
@@ -180,66 +185,46 @@ impl eframe::App for ParqBenchApp {
                 // TODO: collapsing headers
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.collapsing("Query", |ui| {
-                        let filters = self.query_pane.render(ui);
-                        if let Some((filename, filters)) = filters {
-                            self.run_data_future(
-                                Box::new(Box::pin(ParquetData::load_with_query(filename, filters))),
-                                ctx,
-                            );
+                        if let Some(query) = self.query.show(ui) {
+                            self.handle_action(query);
                         }
                     });
-                    if let Some(metadata) = &self.metadata {
-                        ui.collapsing("Metadata", |ui| {
-                            metadata.render_metadata(ui);
-                        });
-                    }
-                    if let Some(metadata) = &self.metadata {
-                        ui.collapsing("Schema", |ui| {
-                            metadata.render_schema(ui);
-                        });
-                    }
+                    // TODO: show configured sources
+                    // TODO: add metadata back
+                    // if let Some(metadata) = &self.metadata {
+                    //     ui.collapsing("Metadata", |ui| {
+                    //         metadata.render_metadata(ui);
+                    //     });
+                    // }
+                    // if let Some(metadata) = &self.metadata {
+                    //     ui.collapsing("Schema", |ui| {
+                    //         metadata.render_schema(ui);
+                    //     });
+                    // }
                 });
             });
 
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                match &*self.table {
-                    Some(table) => {
-                        ui.label(format!("{:#?}", table.filename));
-                    }
-                    None => {
-                        ui.label("no file set");
-                    }
-                }
                 egui::warn_if_debug_build(ui);
+                if loading {
+                    ui.spinner();
+                }
             });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::horizontal().show(ui, |ui| {
-                let filters = match *self.table {
-                    Some(_) => self.table.as_ref().clone().unwrap().render_table(ui),
-                    _ => None,
-                };
-
-                if let Some(filters) = filters {
-                    let future = self.table.as_ref().clone().unwrap().sort(Some(filters));
-                    self.run_data_future(Box::new(Box::pin(future)), ctx);
-                }
-            });
-
-            if self.check_data_pending() {
-                ui.set_enabled(false);
-                if self.table.is_none() {
+                if let Some(data) = self.current_data.as_mut() {
+                    if let Some(action) = data.show(ui) {
+                        self.handle_action(action);
+                    }
+                } else {
                     ui.centered_and_justified(|ui| {
-                        ui.spinner();
+                        ui.label("Drag and drop parquet file here.");
                     });
                 }
-            } else if self.table.is_none() {
-                ui.centered_and_justified(|ui| {
-                    ui.label("Drag and drop parquet file here.");
-                });
-            }
+            });
         });
     }
 }

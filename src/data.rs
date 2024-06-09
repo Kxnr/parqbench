@@ -1,18 +1,15 @@
-#[macro_use]
-extern crate derive_builder;
-
 use datafusion::arrow::compute::concat_batches;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::col as col_expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use smol::future::Boxed;
 use std::ffi::OsStr;
-use std::future::Future;
 use std::path::Path;
 
 use anyhow::anyhow;
 
 pub type DataResult = anyhow::Result<Data>;
-pub type DataFuture = Box<dyn Future<Output = DataResult> + Unpin + Send + 'static>;
+pub type DataFuture = Boxed<DataResult>;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum SortState {
@@ -21,7 +18,7 @@ pub enum SortState {
     Descending,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Query {
     TableName(String),
     Sql(String),
@@ -33,6 +30,7 @@ pub struct DataSource {
     // TODO: create a separate container to hold data for separate tabs
 }
 
+#[derive(Clone)]
 pub struct Data {
     // TOOD: arc context into this struct?
     pub data: RecordBatch,
@@ -82,7 +80,7 @@ impl DataSource {
         Ok(table_name.to_owned())
     }
 
-    pub async fn query(&mut self, query: Query) -> anyhow::Result<Data> {
+    pub async fn query(&self, query: Query) -> anyhow::Result<Data> {
         // TODO: can this be chained, rather than mut-assigned?
         let df = match &query {
             Query::TableName(table) => self.ctx.table(table).await?,
@@ -104,10 +102,8 @@ impl DataSource {
 impl Data {
     // TODO: support actions, like timezone conversion on columns
     pub async fn sort(self, col: String, sort: SortState) -> anyhow::Result<Self> {
-        // TODO: would be nice to do this without cloning, though there's always a tradeoff here--
-        // if this is done in place, there's no data to display in the meantime
         let ctx = SessionContext::new();
-        let mut df = ctx.read_batch(self.data.clone())?;
+        let mut df = ctx.read_batch(self.data)?;
         df = match &sort {
             SortState::Ascending => df.sort(vec![col_expr(&col).sort(true, false)])?,
             SortState::Descending => df.sort(vec![col_expr(&col).sort(false, false)])?,

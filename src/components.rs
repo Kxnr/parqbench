@@ -4,9 +4,11 @@ use egui::{Context, Response, Ui};
 use egui_extras::{Column, TableBuilder};
 use rfd::AsyncFileDialog;
 
+#[derive(Debug)]
 pub enum Action {
-    AddSource,
+    AddSource(String),
     QuerySource(Query),
+    LoadSource(String),
     DeleteSource,
     SortData((String, SortState)),
 }
@@ -253,7 +255,7 @@ impl SelectionDepth for SortState {
             SortState::Descending => "\u{23f7}",
             SortState::Ascending => "\u{23f6}",
             // FIXME: I deleted the correct char...
-            _ => "?",
+            _ => "\u{2195}",
         }
         .to_owned()
     }

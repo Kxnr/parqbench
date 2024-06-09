@@ -13,7 +13,6 @@ egui_extras = "0.27"
 eframe = { version = "0.27", features = ["persistence"] }
 datafusion = "38"
 rfd = { version ="0.14", features = ["file-handle-inner"] }
-tokio = { version = "1.38.0", features = ["rt-multi-thread"] }
 tracing-subscriber = "0.3"
 structopt = "0.3"
 shellexpand = "*"
@@ -21,6 +20,7 @@ parquet = "*"
 anyhow = "1.0.86"
 egui-file-dialog = "0.5.0"
 egui_json_tree = "0.5.1"
+smol = "2.0.0"
 
 [features]
 default = []
