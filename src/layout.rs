@@ -77,13 +77,10 @@ impl ParqBenchApp {
                 }));
             }
             Action::SortData((col, sort_state)) => {
-                // TODO: just block here, user shouldn't really do anything and it saves us a
-                if let Some(data) = self.current_data.as_mut() {
-                    let cloned_data = data.to_owned();
-                    self.data_future = Some(smol::spawn(async move {
-                        cloned_data.sort(col, sort_state).await
-                    }));
-                }
+                self.current_data = self
+                    .current_data
+                    .take()
+                    .and_then(|data| smol::block_on(data.sort(col, sort_state)).ok());
             }
             _ => {}
         };
