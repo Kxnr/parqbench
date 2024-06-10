@@ -8,6 +8,7 @@ use datafusion::arrow::{
 use egui::{Context, Response, Ui};
 use egui_extras::{Column, TableBuilder};
 use egui_json_tree::JsonTree;
+use itertools::Itertools;
 use rfd::AsyncFileDialog;
 use serde_json::Value;
 
@@ -114,7 +115,7 @@ impl Show for Data {
             .stick_to_bottom(true)
             .auto_shrink(false)
             .columns(
-                Column::auto().at_least(min_col_width).clip(true),
+                Column::remainder().at_least(min_col_width).clip(true),
                 self.data.num_columns(),
             )
             .resizable(true)
@@ -195,7 +196,7 @@ impl Show for DataSourceListing {
     fn show(&mut self, ui: &mut Ui) -> Option<Action> {
         // TODO: rename table
         ui.collapsing("Sources", |ui| {
-            for (table_name, table_definition) in self.iter() {
+            for (table_name, table_definition) in self.iter().sorted_by_key(|x| x.0) {
                 ui.collapsing(table_name, |ui| {
                     // TODO: show shouldn't need an `&mut` for read only views
                     Arc::make_mut(&mut table_definition.schema()).show(ui);

@@ -1482,7 +1482,7 @@ dependencies = [
  "half",
  "hashbrown",
  "indexmap",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "num_cpus",
  "object_store",
@@ -1586,7 +1586,7 @@ dependencies = [
  "datafusion-physical-expr",
  "hashbrown",
  "hex",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "md-5",
  "rand",
@@ -1627,7 +1627,7 @@ dependencies = [
  "datafusion-execution",
  "datafusion-expr",
  "datafusion-functions",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "paste",
 ]
@@ -1646,7 +1646,7 @@ dependencies = [
  "datafusion-physical-expr",
  "hashbrown",
  "indexmap",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "regex-syntax",
 ]
@@ -1675,7 +1675,7 @@ dependencies = [
  "hashbrown",
  "hex",
  "indexmap",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "paste",
  "petgraph",
@@ -1718,7 +1718,7 @@ dependencies = [
  "half",
  "hashbrown",
  "indexmap",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "once_cell",
  "parking_lot",
@@ -2760,6 +2760,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3510,7 +3519,7 @@ dependencies = [
  "chrono",
  "futures",
  "humantime",
- "itertools",
+ "itertools 0.12.1",
  "parking_lot",
  "percent-encoding",
  "snafu",
@@ -3610,6 +3619,7 @@ dependencies = [
  "egui-file-dialog",
  "egui_extras",
  "egui_json_tree",
+ "itertools 0.13.0",
  "rfd",
  "serde_json",
  "shellexpand",
