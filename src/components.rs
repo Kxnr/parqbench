@@ -1,8 +1,13 @@
 use crate::data::{Data, Query, SortState};
-use datafusion::arrow::{datatypes::DataType, util::display::array_value_to_string};
+use datafusion::arrow::{
+    datatypes::{DataType, Schema},
+    util::display::array_value_to_string,
+};
 use egui::{Context, Response, Ui};
 use egui_extras::{Column, TableBuilder};
+use egui_json_tree::JsonTree;
 use rfd::AsyncFileDialog;
+use serde_json::Value;
 
 #[derive(Debug)]
 pub enum Action {
@@ -167,53 +172,27 @@ impl Show for Data {
     }
 }
 
-// impl FileMetadata {
-//     pub fn render_metadata(&self, ui: &mut Ui) {
-//         let file_metadata = self.info.file_metadata();
-//         ui.label(format!("version: {}", file_metadata.version()));
-//         ui.label(format!(
-//             "created by: {}",
-//             file_metadata.created_by().unwrap_or("unknown")
-//         ));
-//         ui.label(format!("row groups: {}", self.info.num_row_groups()));
-//         ui.label(format!("rows: {}", file_metadata.num_rows()));
-//         ui.label(format!(
-//             "columns: {}",
-//             file_metadata.schema_descr().num_columns()
-//         ));
-//         if let Some(key_value) = file_metadata.key_value_metadata() {
-//             for KeyValue { key, value } in key_value {
-//                 ui.label(format!(
-//                     "{}: {}",
-//                     key,
-//                     value.to_owned().unwrap_or_else(|| "-".to_string())
-//                 ));
-//             }
-//         }
-//     }
+impl Show for Schema {
+    fn show(&mut self, ui: &mut Ui) -> Option<Action> {
+        ui.collapsing("Schema", |ui| {
+            for field in self.fields.iter() {
+                ui.label(format!("{}: {}", field.name(), field.data_type()));
+            }
+        });
+        ui.collapsing("Metadata", |ui| {
+            for (key, value) in self.metadata.iter() {
+                if let Ok(json) = serde_json::from_str::<Value>(value) {
+                    JsonTree::new(key, &json).show(ui);
+                } else {
+                    ui.label(format!("{}: {}", key, value));
+                }
+            }
+        });
+        None
+    }
+}
 
-//     pub fn render_schema(&self, ui: &mut Ui) {
-//         let file_metadata = self.info.file_metadata();
-//         for (idx, field) in file_metadata.schema_descr().columns().iter().enumerate() {
-//             ui.collapsing(field.name(), |ui| {
-//                 let field_type = field.self_type();
-//                 let field_type = if field_type.is_primitive() {
-//                     format!("{}", field_type.get_physical_type())
-//                 } else {
-//                     format!("{}", field.converted_type())
-//                 };
-//                 ui.label(format!("type: {}", field_type));
-//                 ui.label(format!(
-//                     "sort_order: {}",
-//                     match file_metadata.column_order(idx) {
-//                         ColumnOrder::TYPE_DEFINED_ORDER(sort_order) => format!("{}", sort_order),
-//                         _ => "undefined".to_string(),
-//                     }
-//                 ));
-//             });
-//         }
-//     }
-// }
+// TODO: Show data sources/data source metadata, including parquet data if available
 
 fn is_integer(t: &DataType) -> bool {
     use DataType::*;
@@ -241,7 +220,7 @@ impl SelectionDepth for SortState {
         match self {
             SortState::Ascending => SortState::Descending,
             SortState::Descending => SortState::Ascending,
-            _ => SortState::Descending,
+            SortState::NotSorted => SortState::Descending,
         }
     }
 
@@ -254,8 +233,7 @@ impl SelectionDepth for SortState {
         match self {
             SortState::Descending => "\u{23f7}",
             SortState::Ascending => "\u{23f6}",
-            // FIXME: I deleted the correct char...
-            _ => "\u{2195}",
+            SortState::NotSorted => "\u{2195}",
         }
         .to_owned()
     }

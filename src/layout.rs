@@ -186,18 +186,12 @@ impl eframe::App for ParqBenchApp {
                             self.handle_action(query);
                         }
                     });
-                    // TODO: show configured sources
-                    // TODO: add metadata back
-                    // if let Some(metadata) = &self.metadata {
-                    //     ui.collapsing("Metadata", |ui| {
-                    //         metadata.render_metadata(ui);
-                    //     });
-                    // }
-                    // if let Some(metadata) = &self.metadata {
-                    //     ui.collapsing("Schema", |ui| {
-                    //         metadata.render_schema(ui);
-                    //     });
-                    // }
+                    if let Some(data) = self.current_data.as_ref() {
+                        // TODO: there should be an immutable show or similar mechanism
+                        // TODO: mut is really only needed for prompts that act as builders,
+                        // TODO: other show impls return Actions that perform mutation
+                        Arc::make_mut(&mut data.schema()).show(ui);
+                    }
                 });
             });
 

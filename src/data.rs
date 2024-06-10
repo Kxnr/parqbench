@@ -1,10 +1,12 @@
 use datafusion::arrow::compute::concat_batches;
+use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::col as col_expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use smol::future::Boxed;
 use std::ffi::OsStr;
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::anyhow;
 
@@ -119,6 +121,10 @@ impl Data {
             query: self.query,
             sort_state: Some((col, sort)),
         })
+    }
+
+    pub fn schema(&self) -> Arc<Schema> {
+        self.data.schema()
     }
 
     // TODO: querying from a df isn't entirely straightforward, but would be nice. It seems like
