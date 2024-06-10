@@ -30,10 +30,28 @@ pub enum Query {
     Sql(String),
 }
 
-#[derive(Default)]
+// #[derive(Default)]
 pub struct DataSource {
     ctx: SessionContext,
     // TODO: create a separate container to hold data for separate tabs
+}
+
+impl Default for DataSource {
+    fn default() -> Self {
+        let mut config = SessionConfig::new();
+        config.options_mut().execution.parquet.enable_page_index = true;
+        config.options_mut().execution.parquet.pushdown_filters = true;
+        config.options_mut().execution.parquet.pruning = true;
+        config.options_mut().execution.parquet.reorder_filters = true;
+        config.options_mut().execution.parquet.skip_metadata = false;
+        config.options_mut().execution.collect_statistics = false;
+        config.options_mut().catalog.information_schema = true;
+        dbg!(&config);
+
+        Self {
+            ctx: SessionContext::new_with_config(config),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -58,13 +76,17 @@ fn get_read_options(filename: &str) -> anyhow::Result<ParquetReadOptions<'_>> {
         ))
 }
 
-fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
+fn concat_record_batches(batches: Vec<RecordBatch>) -> anyhow::Result<RecordBatch> {
     // NOTE: this may be rather inefficient, but there's a tradeoff for having random access to
     // NOTE: slice out a chunk of rows for display down the road, worth investigating whether
     // NOTE: there's a cleaner way here
 
     // FIXME: panic on empty query
-    concat_batches(&batches[0].schema(), batches.iter()).unwrap()
+    concat_batches(
+        &batches.first().ok_or(anyhow!("Data is empty."))?.schema(),
+        batches.iter(),
+    )
+    .map_err(|err| anyhow!(err))
 }
 
 impl DataSource {
@@ -125,7 +147,7 @@ impl DataSource {
         Ok(Data {
             // TODO: will record batches have the same schema, or should these really be
             // TODO: separate data entries?
-            data: concat_record_batches(data),
+            data: concat_record_batches(data)?,
             query,
             sort_state: None,
         })
@@ -134,13 +156,10 @@ impl DataSource {
 
 impl Data {
     pub async fn sort(self, col: String, sort: SortState) -> anyhow::Result<Self> {
-        let mut config = SessionConfig::new();
-        config.options_mut().execution.parquet.enable_page_index = true;
-        config.options_mut().execution.parquet.pushdown_filters = true;
-        config.options_mut().execution.parquet.pruning = true;
-        config.options_mut().execution.parquet.reorder_filters = true;
-        config.options_mut().execution.parquet.skip_metadata = false;
-        let ctx = SessionContext::new_with_config(config);
+        // TODO: should this be a clone of the exising context?
+        // TODO: make successive queries able to be registered to the context, so that comple
+        // TODO: queries can be constructed?
+        let ctx = SessionContext::new();
         let mut df = ctx.read_batch(self.data)?;
         df = match &sort {
             // consider null "less" than real values, so they can get surfaced
@@ -154,7 +173,7 @@ impl Data {
         Ok(Data {
             // TODO: will record batches have the same schema, or should these really be
             // TODO: separate data entries?
-            data: concat_record_batches(data),
+            data: concat_record_batches(data)?,
             query: self.query,
             sort_state: Some((col, sort)),
         })

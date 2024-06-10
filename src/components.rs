@@ -227,6 +227,7 @@ fn is_float(t: &DataType) -> bool {
 }
 
 pub trait SelectionDepth {
+    // TODO: https://stackoverflow.com/questions/25867875/how-do-i-toggle-through-enum-variants
     fn inc(&self) -> Self;
 
     fn reset(&self) -> Self;
@@ -239,7 +240,7 @@ impl SelectionDepth for SortState {
         match self {
             SortState::Ascending => SortState::Descending,
             SortState::Descending => SortState::Ascending,
-            SortState::NotSorted => SortState::Descending,
+            SortState::NotSorted => SortState::Ascending,
         }
     }
 
@@ -250,8 +251,8 @@ impl SelectionDepth for SortState {
 
     fn format(&self) -> String {
         match self {
-            SortState::Descending => "\u{23f7}",
-            SortState::Ascending => "\u{23f6}",
+            SortState::Ascending => "\u{23f7}",
+            SortState::Descending => "\u{23f6}",
             SortState::NotSorted => "\u{2195}",
         }
         .to_owned()
