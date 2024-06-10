@@ -33,7 +33,6 @@ pub enum Query {
 // #[derive(Default)]
 pub struct DataSource {
     ctx: SessionContext,
-    // TODO: create a separate container to hold data for separate tabs
 }
 
 impl Default for DataSource {
@@ -129,6 +128,7 @@ impl DataSource {
                     .expect("Could not convert filename to default table name")
             });
 
+        dbg!(&file_name);
         self.ctx
             .register_parquet(&table_name, &file_name, get_read_options(&filename)?)
             .await?;
