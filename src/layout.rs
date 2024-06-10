@@ -4,7 +4,7 @@ use crate::{
     components::{file_dialog, Action, Popover, Settings, Show},
     data::{Data, DataResult, DataSource, Query},
 };
-use anyhow::anyhow;
+use async_compat::Compat;
 use core::default::Default;
 use smol::lock::RwLock;
 use smol::Task;
@@ -54,9 +54,9 @@ impl ParqBenchApp {
             }
             Action::QuerySource(query) => {
                 let data_source = self.data_source.clone();
-                self.data_future = Some(smol::spawn(async move {
+                self.data_future = Some(smol::spawn(Compat::new(async move {
                     data_source.read().await.query(query).await
-                }));
+                })));
             }
             Action::LoadSource(filename) => {
                 let data_source = self.data_source.clone();
@@ -103,7 +103,7 @@ impl ParqBenchApp {
                     Ok(data) => {
                         self.current_data = Some(data);
                     }
-                    Err(_) => self.popover = Some(Box::new(anyhow!("Failed to load data"))),
+                    Err(msg) => self.popover = Some(Box::new(msg)),
                 };
                 self.data_future = None;
             };
@@ -181,11 +181,10 @@ impl eframe::App for ParqBenchApp {
             .show(ctx, |ui| {
                 // TODO: collapsing headers
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.collapsing("Query", |ui| {
-                        if let Some(query) = self.query.show(ui) {
-                            self.handle_action(query);
-                        }
-                    });
+                    smol::block_on(self.data_source.read_blocking().list_tables()).show(ui);
+                    if let Some(query) = self.query.show(ui) {
+                        self.handle_action(query);
+                    }
                     if let Some(data) = self.current_data.as_ref() {
                         // TODO: there should be an immutable show or similar mechanism
                         // TODO: mut is really only needed for prompts that act as builders,

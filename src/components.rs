@@ -1,4 +1,6 @@
-use crate::data::{Data, Query, SortState};
+use std::sync::Arc;
+
+use crate::data::{Data, DataSourceListing, Query, SortState};
 use datafusion::arrow::{
     datatypes::{DataType, Schema},
     util::display::array_value_to_string,
@@ -62,7 +64,7 @@ impl Popover for anyhow::Error {
 
 impl Show for Query {
     fn show(&mut self, ui: &mut Ui) -> Option<Action> {
-        match self {
+        ui.collapsing("Query", |ui| match self {
             Query::TableName(_) => None,
             Query::Sql(query) => {
                 ui.label("Query:".to_string());
@@ -74,7 +76,9 @@ impl Show for Query {
                     None
                 }
             }
-        }
+        })
+        .body_returned
+        .unwrap_or(None)
     }
 }
 
@@ -172,6 +176,8 @@ impl Show for Data {
     }
 }
 
+// FIXME: parquet metadata is not loaded by either the Schema or DataSourceListing displays
+
 impl Show for Schema {
     fn show(&mut self, ui: &mut Ui) -> Option<Action> {
         ui.collapsing("Schema", |ui| {
@@ -192,7 +198,20 @@ impl Show for Schema {
     }
 }
 
-// TODO: Show data sources/data source metadata, including parquet data if available
+impl Show for DataSourceListing {
+    fn show(&mut self, ui: &mut Ui) -> Option<Action> {
+        // TODO: rename table
+        ui.collapsing("Sources", |ui| {
+            for (table_name, table_definition) in self.iter() {
+                ui.collapsing(table_name, |ui| {
+                    // TODO: show shouldn't need an `&mut` for read only views
+                    Arc::make_mut(&mut table_definition.schema()).show(ui);
+                });
+            }
+        });
+        None
+    }
+}
 
 fn is_integer(t: &DataType) -> bool {
     use DataType::*;

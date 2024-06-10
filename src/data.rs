@@ -1,10 +1,12 @@
 use datafusion::arrow::compute::concat_batches;
-use datafusion::arrow::datatypes::Schema;
+use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::datasource::TableProvider;
 use datafusion::execution::config::SessionConfig;
 use datafusion::logical_expr::col as col_expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use smol::future::Boxed;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::Arc;
@@ -13,6 +15,7 @@ use anyhow::anyhow;
 
 pub type DataResult = anyhow::Result<Data>;
 pub type DataFuture = Boxed<DataResult>;
+pub type DataSourceListing = HashMap<String, Arc<dyn TableProvider>>;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum SortState {
@@ -59,10 +62,38 @@ fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
     // NOTE: this may be rather inefficient, but there's a tradeoff for having random access to
     // NOTE: slice out a chunk of rows for display down the road, worth investigating whether
     // NOTE: there's a cleaner way here
+
+    // FIXME: panic on empty query
     concat_batches(&batches[0].schema(), batches.iter()).unwrap()
 }
 
 impl DataSource {
+    pub async fn list_tables(&self) -> DataSourceListing {
+        // TODO: is there anything to be done to simplify this arrow?
+        let mut tables = HashMap::new();
+        for catalog_name in self.ctx.catalog_names() {
+            let catalog = self.ctx.catalog(&catalog_name);
+            if let Some(catalog) = catalog {
+                for schema_name in catalog.schema_names() {
+                    let schema = catalog.schema(&schema_name);
+                    if let Some(schema) = schema {
+                        for table_name in schema.table_names() {
+                            // FIXME: this may perform I/O when using a remote source
+                            if let Some(table) = schema
+                                .table(&table_name)
+                                .await
+                                .expect("Failure to load registered table.")
+                            {
+                                tables.insert(table_name, table);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        tables
+    }
+
     pub async fn add_data_source(&mut self, filename: String) -> anyhow::Result<String> {
         // TODO: pass in data source name
         // TODO: multiple formats, partitioned datasets
@@ -102,7 +133,6 @@ impl DataSource {
 }
 
 impl Data {
-    // TODO: support actions, like timezone conversion on columns
     pub async fn sort(self, col: String, sort: SortState) -> anyhow::Result<Self> {
         let mut config = SessionConfig::new();
         config.options_mut().execution.parquet.enable_page_index = true;
@@ -113,8 +143,9 @@ impl Data {
         let ctx = SessionContext::new_with_config(config);
         let mut df = ctx.read_batch(self.data)?;
         df = match &sort {
+            // consider null "less" than real values, so they can get surfaced
             SortState::Ascending => df.sort(vec![col_expr(&col).sort(true, false)])?,
-            SortState::Descending => df.sort(vec![col_expr(&col).sort(false, false)])?,
+            SortState::Descending => df.sort(vec![col_expr(&col).sort(false, true)])?,
             _ => df,
         };
 
