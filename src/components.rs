@@ -100,15 +100,8 @@ impl Show for Data {
         }
 
         let text_height = egui::TextStyle::Body.resolve(style).size;
-        // ensure that our column layout fills the view
-        let initial_col_width = ui.available_width() / self.data.num_columns() as f32;
-
-        // stop columns from resizing to smaller than the window
-        let min_col_width = if style.spacing.interact_size.x > initial_col_width {
-            style.spacing.interact_size.x
-        } else {
-            initial_col_width
-        };
+        // stop columns from getting too small to be usable
+        let min_col_width = style.spacing.interact_size.x;
 
         // we put buttons in the header, so make sure that the vertical size of the header includes
         // the button size and the normal padding around buttons
@@ -119,10 +112,9 @@ impl Show for Data {
         TableBuilder::new(ui)
             .striped(true)
             .stick_to_bottom(true)
+            .auto_shrink(false)
             .columns(
-                Column::initial(initial_col_width)
-                    .at_least(min_col_width)
-                    .clip(true),
+                Column::auto().at_least(min_col_width).clip(true),
                 self.data.num_columns(),
             )
             .resizable(true)
@@ -152,6 +144,7 @@ impl Show for Data {
                             // at most a few dozen records at a time (barring pathological
                             // tables with absurd numbers of columns) and should still
                             // have conversion times on the order of ns.
+                            // TODO: have separate value layout function
                             ui.with_layout(
                                 if is_integer(data_col.data_type()) {
                                     egui::Layout::centered_and_justified(
