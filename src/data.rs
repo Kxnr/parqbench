@@ -1,6 +1,7 @@
 use datafusion::arrow::compute::concat_batches;
 use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::execution::config::SessionConfig;
 use datafusion::logical_expr::col as col_expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use smol::future::Boxed;
@@ -83,7 +84,6 @@ impl DataSource {
     }
 
     pub async fn query(&self, query: Query) -> anyhow::Result<Data> {
-        // TODO: can this be chained, rather than mut-assigned?
         let df = match &query {
             Query::TableName(table) => self.ctx.table(table).await?,
             Query::Sql(query) => self.ctx.sql(&query).await?,
@@ -104,7 +104,13 @@ impl DataSource {
 impl Data {
     // TODO: support actions, like timezone conversion on columns
     pub async fn sort(self, col: String, sort: SortState) -> anyhow::Result<Self> {
-        let ctx = SessionContext::new();
+        let mut config = SessionConfig::new();
+        config.options_mut().execution.parquet.enable_page_index = true;
+        config.options_mut().execution.parquet.pushdown_filters = true;
+        config.options_mut().execution.parquet.pruning = true;
+        config.options_mut().execution.parquet.reorder_filters = true;
+        config.options_mut().execution.parquet.skip_metadata = false;
+        let ctx = SessionContext::new_with_config(config);
         let mut df = ctx.read_batch(self.data)?;
         df = match &sort {
             SortState::Ascending => df.sort(vec![col_expr(&col).sort(true, false)])?,
@@ -132,6 +138,7 @@ impl Data {
     // TODO: end up needing to expose filter/select rather than sql, unless there's a good way to
     // TODO: build Expr instances. Notably because there's not really a table name here unless we
     // TODO: assign one.
+    // NOTE: register_batch exists
     // pub async fn query(&mut self, query: Query) -> anyhow::Result<Self> {
     //     // TODO: can this be chained, rather than mut-assigned?
     //     let ctx = SessionContext::new();
