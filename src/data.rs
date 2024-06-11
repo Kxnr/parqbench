@@ -5,11 +5,14 @@ use datafusion::datasource::TableProvider;
 use datafusion::execution::config::SessionConfig;
 use datafusion::logical_expr::col as col_expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use object_store::local::LocalFileSystem;
+use regex::Regex;
 use smol::future::Boxed;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::Arc;
+use url::Url;
 
 use anyhow::anyhow;
 
@@ -75,12 +78,31 @@ fn get_read_options(filename: &str) -> anyhow::Result<ParquetReadOptions<'_>> {
         ))
 }
 
+fn get_unc_prefix(filename: &str) -> Option<String> {
+    let unc_prefix_regex = Regex::new(r"\\\\\?\\UNC\\([A-Za-z0-9_.$●-]+)\\([A-Za-z0-9_.$●-]+)")
+        .expect("Hardcoded regex");
+    std::fs::canonicalize(filename)
+        .ok()
+        .inspect(|v| {
+            dbg!(v);
+        })
+        .and_then(|pth| pth.to_str().map(|str| str.to_owned()))
+        .and_then(|pth| {
+            unc_prefix_regex
+                .find(&pth)
+                .inspect(|v| {
+                    dbg!(v);
+                })
+                .map(|m| m.as_str().to_owned())
+        })
+        .map(|str| str.to_owned())
+}
+
 fn concat_record_batches(batches: Vec<RecordBatch>) -> anyhow::Result<RecordBatch> {
     // NOTE: this may be rather inefficient, but there's a tradeoff for having random access to
     // NOTE: slice out a chunk of rows for display down the road, worth investigating whether
     // NOTE: there's a cleaner way here
 
-    // FIXME: panic on empty query
     concat_batches(
         &batches.first().ok_or(anyhow!("Data is empty."))?.schema(),
         batches.iter(),
@@ -119,6 +141,19 @@ impl DataSource {
         // TODO: pass in data source name
         // TODO: multiple formats, partitioned datasets
         let file_name = shellexpand::full(&filename)?.to_string();
+
+        // if this is a UNC path, we need to add an object store in order to access it, since the
+        // default object store only handles file:/// paths
+        let unc_prefix = dbg!(get_unc_prefix(&filename));
+        if let Some(unc_prefix) = unc_prefix {
+            // the default object store only supports a scheme://authority key, so we can only
+            // register one store per server, even if there are multiple stores. If this becomes a
+            // problem, we need a custom ObjectStoreRegistry
+            let object_store_url = Url::parse(&unc_prefix)?;
+            let object_store = LocalFileSystem::new_with_prefix(unc_prefix)?;
+            self.ctx
+                .register_object_store(&object_store_url, Arc::new(object_store));
+        }
 
         let table_name = Path::new(&file_name)
             .file_stem()
