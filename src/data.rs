@@ -10,11 +10,11 @@ use regex::Regex;
 use smol::future::Boxed;
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use url::Url;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 
 pub type DataResult = anyhow::Result<Data>;
 pub type DataFuture = Boxed<DataResult>;
@@ -78,8 +78,8 @@ fn get_read_options(filename: &str) -> anyhow::Result<ParquetReadOptions<'_>> {
         ))
 }
 
-fn get_unc_prefix(filename: &str) -> Option<String> {
-    let unc_prefix_regex = Regex::new(r"\\\\\?\\UNC\\([A-Za-z0-9_.$●-]+)\\([A-Za-z0-9_.$●-]+)")
+fn get_unc_prefix(filename: &str) -> Option<PathBuf> {
+    let unc_prefix_regex = Regex::new(r"\\\\\?\\UNC\\([A-Za-z0-9_.$●-]+)\\([A-Za-z0-9_.$●-]+)\\")
         .expect("Hardcoded regex");
     std::fs::canonicalize(filename)
         .ok()
@@ -95,7 +95,7 @@ fn get_unc_prefix(filename: &str) -> Option<String> {
                 })
                 .map(|m| m.as_str().to_owned())
         })
-        .map(|str| str.to_owned())
+        .map(|str| PathBuf::from(str))
 }
 
 fn concat_record_batches(batches: Vec<RecordBatch>) -> anyhow::Result<RecordBatch> {
@@ -149,7 +149,12 @@ impl DataSource {
             // the default object store only supports a scheme://authority key, so we can only
             // register one store per server, even if there are multiple stores. If this becomes a
             // problem, we need a custom ObjectStoreRegistry
-            let object_store_url = Url::parse(&unc_prefix)?;
+            let object_store_url =
+                if let Ok(object_store_url) = dbg!(Url::from_directory_path(&unc_prefix)) {
+                    object_store_url
+                } else {
+                    bail!("Could not convert prefix to valid url.");
+                };
             let object_store = LocalFileSystem::new_with_prefix(unc_prefix)?;
             self.ctx
                 .register_object_store(&object_store_url, Arc::new(object_store));
@@ -164,6 +169,9 @@ impl DataSource {
             });
 
         dbg!(&file_name);
+        dbg!(Path::new(&file_name));
+        dbg!(Path::new(&file_name).is_absolute());
+        dbg!(Url::parse(&file_name));
         self.ctx
             .register_parquet(&table_name, &file_name, get_read_options(&filename)?)
             .await?;
