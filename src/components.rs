@@ -55,6 +55,7 @@ impl Popover for anyhow::Error {
             .collapsible(false)
             .open(&mut open)
             .show(ctx, |ui| {
+                eprintln!("{:?}", self);
                 ui.label(format!("Error: {}", self));
                 ui.set_enabled(false);
             });
