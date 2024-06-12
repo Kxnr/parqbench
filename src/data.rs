@@ -8,6 +8,7 @@ use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use object_store::local::LocalFileSystem;
 use regex::Regex;
 use smol::future::Boxed;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -78,24 +79,30 @@ fn get_read_options(filename: &str) -> anyhow::Result<ParquetReadOptions<'_>> {
         ))
 }
 
-fn get_unc_prefix(filename: &str) -> Option<PathBuf> {
+type Prefix = PathBuf;
+type RelativePath = PathBuf;
+
+fn split_file_prefix(filename: &str) -> anyhow::Result<(Option<Prefix>, RelativePath)> {
+    // if this filename has a prefix, split it and return a path relative to the prefix, which lets
+    // us register an object store for the given prefix. Currently only handles UNC prefixes.
+    // Returns Err if the path could not be canonicalized.
+
     let unc_prefix_regex = Regex::new(r"\\\\\?\\UNC\\([A-Za-z0-9_.$●-]+)\\([A-Za-z0-9_.$●-]+)\\")
         .expect("Hardcoded regex");
-    std::fs::canonicalize(filename)
-        .ok()
-        .inspect(|v| {
-            dbg!(v);
-        })
-        .and_then(|pth| pth.to_str().map(|str| str.to_owned()))
-        .and_then(|pth| {
-            unc_prefix_regex
-                .find(&pth)
-                .inspect(|v| {
-                    dbg!(v);
-                })
-                .map(|m| m.as_str().to_owned())
-        })
-        .map(|str| PathBuf::from(str))
+    let canonicalized_path = dbg!(std::fs::canonicalize(filename))?;
+    if let Some(prefix) = unc_prefix_regex.find(
+        canonicalized_path
+            .to_str()
+            .expect("Converting canonicalized path to string should work"),
+    ) {
+        let prefix = Path::new(prefix.as_str());
+        let relative_path = canonicalized_path
+            .strip_prefix(prefix)
+            .expect("Prefix derived by regex from this path.");
+        Ok((Some(prefix.to_owned()), relative_path.to_owned()))
+    } else {
+        Ok((None, canonicalized_path))
+    }
 }
 
 fn concat_record_batches(batches: Vec<RecordBatch>) -> anyhow::Result<RecordBatch> {
@@ -140,40 +147,29 @@ impl DataSource {
     pub async fn add_data_source(&mut self, filename: String) -> anyhow::Result<String> {
         // TODO: pass in data source name
         // TODO: multiple formats, partitioned datasets
-        let file_name = shellexpand::full(&filename)?.to_string();
-
-        // if this is a UNC path, we need to add an object store in order to access it, since the
-        // default object store only handles file:/// paths
-        let unc_prefix = dbg!(get_unc_prefix(&filename));
-        if let Some(unc_prefix) = unc_prefix {
-            // the default object store only supports a scheme://authority key, so we can only
-            // register one store per server, even if there are multiple stores. If this becomes a
-            // problem, we need a custom ObjectStoreRegistry
-            let object_store_url =
-                if let Ok(object_store_url) = dbg!(Url::from_directory_path(&unc_prefix)) {
-                    object_store_url
-                } else {
-                    bail!("Could not convert prefix to valid url.");
-                };
-            let object_store = LocalFileSystem::new_with_prefix(unc_prefix)?;
+        let (prefix, file_name) = split_file_prefix(shellexpand::full(&filename)?.borrow())?;
+        if let Some(prefix) = prefix {
+            let prefix_url = Url::from_directory_path(&prefix)
+                .map_err(|_| anyhow!("Could not create url from unc prefix.".to_owned()))?;
+            let object_store = LocalFileSystem::new_with_prefix(prefix)?;
+            // TODO: check if object store exists
             self.ctx
-                .register_object_store(&object_store_url, Arc::new(object_store));
+                .register_object_store(&prefix_url, Arc::new(object_store));
         }
 
-        let table_name = Path::new(&file_name)
+        let table_name = file_name
             .file_stem()
-            .map_or(file_name.as_str(), |v| {
-                v.to_str()
-                    // TODO: ? might help here to make this a recoverable error
-                    .expect("Could not convert filename to default table name")
-            });
+            .map_or(file_name.to_str(), |v| v.to_str())
+            .expect("Could not convert filename to default table name");
 
-        dbg!(&file_name);
-        dbg!(Path::new(&file_name));
-        dbg!(Path::new(&file_name).is_absolute());
-        dbg!(Url::parse(&file_name));
         self.ctx
-            .register_parquet(&table_name, &file_name, get_read_options(&filename)?)
+            .register_parquet(
+                &table_name,
+                &file_name
+                    .to_str()
+                    .expect("Could not convert filename to str"),
+                get_read_options(&filename)?,
+            )
             .await?;
 
         Ok(table_name.to_owned())
