@@ -164,7 +164,6 @@ impl eframe::App for ParqBenchApp {
                     }
 
                     if ui.button("Settings...").clicked() {
-                        // FIXME: need to manage potential for multiple popovers
                         self.popover = Some(Box::new(Settings {}));
                         ui.close_menu();
                     }
@@ -181,16 +180,12 @@ impl eframe::App for ParqBenchApp {
             .show(ctx, |ui| {
                 // TODO: collapsing headers
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    smol::block_on(self.data_source.read_blocking().list_tables()).show(ui);
-                    if let Some(query) = self.query.show(ui) {
-                        self.handle_action(query);
-                    }
-                    if let Some(data) = self.current_data.as_ref() {
-                        // TODO: there should be an immutable show or similar mechanism
-                        // TODO: mut is really only needed for prompts that act as builders,
-                        // TODO: other show impls return Actions that perform mutation
-                        Arc::make_mut(&mut data.schema()).show(ui);
-                    }
+                    ui.collapsing("Data", |ui| {
+                        smol::block_on(self.data_source.write_blocking().list_tables()).show(ui);
+                        if let Some(query) = self.query.show(ui) {
+                            self.handle_action(query);
+                        }
+                    });
                 });
             });
 
