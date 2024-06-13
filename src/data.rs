@@ -82,11 +82,12 @@ fn get_read_options(filename: &str) -> anyhow::Result<ParquetReadOptions<'_>> {
 type Prefix = PathBuf;
 type RelativePath = PathBuf;
 
-fn split_file_prefix(filename: &str) -> anyhow::Result<(Option<Prefix>, RelativePath)> {
-    // if this filename has a prefix, split it and return a path relative to the prefix, which lets
-    // us register an object store for the given prefix. Currently only handles UNC prefixes.
-    // Returns Err if the path could not be canonicalized.
-
+/*
+    if this filename has a prefix, split it and return a path relative to the prefix, which lets
+    us register an object store for the given prefix.
+    Returns Err if the path could not be canonicalized.
+*/
+fn split_unc_file_prefix(filename: &str) -> anyhow::Result<(Option<Prefix>, RelativePath)> {
     let unc_prefix_regex = Regex::new(r"\\\\\?\\UNC\\([A-Za-z0-9_.$●-]+)\\([A-Za-z0-9_.$●-]+)\\")
         .expect("Hardcoded regex");
     let canonicalized_path = dbg!(std::fs::canonicalize(filename))?;
@@ -101,8 +102,26 @@ fn split_file_prefix(filename: &str) -> anyhow::Result<(Option<Prefix>, Relative
             .expect("Prefix derived by regex from this path.");
         Ok((Some(prefix.to_owned()), relative_path.to_owned()))
     } else {
-        Ok((None, canonicalized_path))
+        Ok((None, Path::new(filename).to_owned()))
     }
+}
+
+/*
+Convert the a unc path prefix to a scheme and host prefix for registry with datafusion
+*/
+fn unc_prefix_to_url_prefix(prefix: &Prefix) -> anyhow::Result<Url> {
+    let url = Url::from_directory_path(prefix)
+        .map_err(|_| anyhow!("Could not create Url from prefix."))?;
+    let host = url
+        .host()
+        .expect("UNC format always has a host")
+        .to_string();
+    let share = url
+        .path_segments()
+        .and_then(|mut splt| splt.next())
+        .expect("UNC format always has a share");
+    // TODO: hardcoding wsl for testing, the $ breaks the URL decoding
+    dbg!(Url::parse(&dbg!(format!("wsl://{}", share.to_lowercase())))).map_err(|err| anyhow!(err))
 }
 
 fn concat_record_batches(batches: Vec<RecordBatch>) -> anyhow::Result<RecordBatch> {
@@ -128,7 +147,8 @@ impl DataSource {
                     let schema = catalog.schema(&schema_name);
                     if let Some(schema) = schema {
                         for table_name in schema.table_names() {
-                            // FIXME: this may perform I/O when using a remote source
+                            // FIXME: this may perform I/O when using a remote source and is called
+                            // FIXME: on ui update
                             if let Some(table) = schema
                                 .table(&table_name)
                                 .await
@@ -147,12 +167,22 @@ impl DataSource {
     pub async fn add_data_source(&mut self, filename: String) -> anyhow::Result<String> {
         // TODO: pass in data source name
         // TODO: multiple formats, partitioned datasets
-        let (prefix, file_name) = split_file_prefix(shellexpand::full(&filename)?.borrow())?;
+        let (prefix, mut file_name) =
+            split_unc_file_prefix(shellexpand::full(&filename)?.borrow())?;
         if let Some(prefix) = prefix {
-            let prefix_url = Url::from_directory_path(&prefix)
-                .map_err(|_| anyhow!("Could not create url from unc prefix.".to_owned()))?;
+            let mut prefix_url = dbg!(unc_prefix_to_url_prefix(&prefix))?;
             let object_store = LocalFileSystem::new_with_prefix(prefix)?;
+            prefix_url
+                .path_segments_mut()
+                .expect("Could not construct path segment iterator")
+                .extend(file_name.iter().map(|s| {
+                    s.to_str()
+                        .expect("Patch component not representable as str")
+                }));
+            file_name = Path::new(prefix_url.as_str()).to_owned();
+
             // TODO: check if object store exists
+            dbg!("registering store");
             self.ctx
                 .register_object_store(&prefix_url, Arc::new(object_store));
         }
@@ -162,9 +192,10 @@ impl DataSource {
             .map_or(file_name.to_str(), |v| v.to_str())
             .expect("Could not convert filename to default table name");
 
+        dbg!("registering source");
         self.ctx
             .register_parquet(
-                &table_name,
+                &table_name.to_lowercase(),
                 &file_name
                     .to_str()
                     .expect("Could not convert filename to str"),
@@ -177,7 +208,7 @@ impl DataSource {
 
     pub async fn query(&self, query: Query) -> anyhow::Result<Data> {
         let df = match &query {
-            Query::TableName(table) => self.ctx.table(table).await?,
+            Query::TableName(table) => self.ctx.table(table.to_lowercase()).await?,
             Query::Sql(query) => self.ctx.sql(&query).await?,
         };
 
