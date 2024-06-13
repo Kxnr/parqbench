@@ -67,6 +67,7 @@ pub struct Data {
     pub data: RecordBatch,
     pub query: Query,
     pub sort_state: Option<(String, SortState)>,
+    ctx: Option<SessionContext>,
 }
 
 fn get_read_options(filename: &str) -> anyhow::Result<ParquetReadOptions<'_>> {
@@ -227,6 +228,7 @@ impl DataSource {
             data: concat_record_batches(data)?,
             query,
             sort_state: None,
+            ctx: None,
         })
     }
 }
@@ -253,6 +255,7 @@ impl Data {
             data: concat_record_batches(data)?,
             query: self.query,
             sort_state: Some((col, sort)),
+            ctx: None,
         })
     }
 
@@ -260,29 +263,26 @@ impl Data {
         self.data.schema()
     }
 
-    // TODO: querying from a df isn't entirely straightforward, but would be nice. It seems like
-    // TODO: the easiest way is going to be to use an in memory table provider or similar. This may
-    // TODO: end up needing to expose filter/select rather than sql, unless there's a good way to
-    // TODO: build Expr instances. Notably because there's not really a table name here unless we
-    // TODO: assign one.
-    // NOTE: register_batch exists
-    // pub async fn query(&mut self, query: Query) -> anyhow::Result<Self> {
-    //     // TODO: can this be chained, rather than mut-assigned?
-    //     let ctx = SessionContext::new();
-    //     let df = ctx.read_batch(self.data.clone())?;
-    //     let df = match &query {
-    //         Query::Sql(query) => ctx.sql(&query).await?,
-    //         _ => Err(anyhow!("In memory tables only support SQL queries."))?,
-    //     };
+    pub async fn query(mut self, query: Query) -> anyhow::Result<Self> {
+        // TODO: can this be chained, rather than mut-assigned?
+        let table_name = "main";
+        if self.ctx.is_none() {
+            let ctx = SessionContext::new();
+            // TODO: set match
+            ctx.register_batch(table_name, self.data);
+            self.ctx = Some(ctx);
+        }
+        let ctx = self.ctx.as_ref().unwrap();
 
-    //     let data = df.collect().await?;
+        let df = match &query {
+            Query::Sql(query) => ctx.sql(&query).await?,
+            Query::TableName(_) => ctx.table(table_name).await?,
+        };
 
-    //     Ok(Data {
-    //         // TODO: will record batches have the same schema, or should these really be
-    //         // TODO: separate data entries?
-    //         data: concat_record_batches(data),
-    //         query,
-    //         sort_state: None,
-    //     })
-    // }
+        let data = df.collect().await?;
+
+        self.data = concat_record_batches(data)?;
+        self.query = query;
+        Ok(self)
+    }
 }
