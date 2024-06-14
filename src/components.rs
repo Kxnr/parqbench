@@ -74,7 +74,7 @@ impl ShowMut for Query {
             Query::TableName(_) => None,
             Query::Sql(query) => {
                 ui.label("Query:".to_string());
-                egui::TextEdit::singleline(query).clip_text(false).show(ui);
+                egui::TextEdit::singleline(query).clip_text(true).show(ui);
                 let submit = ui.button("Apply");
                 if submit.clicked() && !query.is_empty() {
                     Some(Action::QuerySource(self.clone()))
@@ -286,18 +286,5 @@ pub async fn file_dialog() -> Result<String, String> {
             .map(|s| s.to_string())
     } else {
         Err("No file loaded.".to_string())
-    }
-}
-
-pub async fn directory_dialog() -> Result<String, String> {
-    let dir = AsyncFileDialog::new().pick_folder().await;
-
-    if let Some(dir) = dir {
-        dir.inner()
-            .to_str()
-            .ok_or_else(|| "Could not parse path.".to_string())
-            .map(|s| s.to_string())
-    } else {
-        Err("No dir loaded.".to_string())
     }
 }
