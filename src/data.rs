@@ -67,7 +67,6 @@ pub struct Data {
     pub data: RecordBatch,
     pub query: Query,
     pub sort_state: Option<(String, SortState)>,
-    ctx: Option<SessionContext>,
 }
 
 fn get_read_options(filename: &str) -> ParquetReadOptions<'_> {
@@ -226,7 +225,6 @@ impl DataSource {
             data: concat_record_batches(data)?,
             query,
             sort_state: None,
-            ctx: None,
         })
     }
 }
@@ -253,34 +251,10 @@ impl Data {
             data: concat_record_batches(data)?,
             query: self.query,
             sort_state: Some((col, sort)),
-            ctx: None,
         })
     }
 
     pub fn schema(&self) -> Arc<Schema> {
         self.data.schema()
-    }
-
-    pub async fn query(mut self, query: Query) -> anyhow::Result<Self> {
-        // TODO: can this be chained, rather than mut-assigned?
-        let table_name = "main";
-        if self.ctx.is_none() {
-            let ctx = SessionContext::new();
-            // TODO: set match
-            ctx.register_batch(table_name, self.data);
-            self.ctx = Some(ctx);
-        }
-        let ctx = self.ctx.as_ref().unwrap();
-
-        let df = match &query {
-            Query::Sql(query) => ctx.sql(&query).await?,
-            Query::TableName(_) => ctx.table(table_name).await?,
-        };
-
-        let data = df.collect().await?;
-
-        self.data = concat_record_batches(data)?;
-        self.query = query;
-        Ok(self)
     }
 }
