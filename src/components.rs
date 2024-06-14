@@ -70,21 +70,26 @@ impl Popover for anyhow::Error {
 
 impl ShowMut for Query {
     fn show(&mut self, ui: &mut Ui) -> Option<Action> {
-        ui.collapsing("Query", |ui| match self {
-            Query::TableName(_) => None,
-            Query::Sql(query) => {
-                ui.label("Query:".to_string());
-                egui::TextEdit::singleline(query).clip_text(true).show(ui);
-                let submit = ui.button("Apply");
-                if submit.clicked() && !query.is_empty() {
-                    Some(Action::QuerySource(self.clone()))
-                } else {
-                    None
+        ui.horizontal(|ui| {
+            match self {
+                Query::TableName(query) => {
+                    ui.label("Table Name".to_string());
+                    egui::TextEdit::singleline(query).clip_text(true).show(ui);
+                }
+
+                Query::Sql(query) => {
+                    ui.label("SQL Query:".to_string());
+                    egui::TextEdit::singleline(query).clip_text(true).show(ui);
                 }
             }
+            let submit = ui.button("Apply");
+            if submit.clicked() {
+                Some(Action::QuerySource(self.clone()))
+            } else {
+                None
+            }
         })
-        .body_returned
-        .unwrap_or(None)
+        .inner
     }
 }
 
