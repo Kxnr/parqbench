@@ -85,14 +85,12 @@ fn get_read_options(filename: &str) -> anyhow::Result<ParquetReadOptions<'_>> {
 }
 
 fn unc_path_to_url(path: &Path) -> anyhow::Result<Url> {
-    let url =
-        Url::from_directory_path(path).map_err(|_| anyhow!("Could not create Url from path."))?;
+    let url = Url::from_file_path(path).map_err(|_| anyhow!("Could not create Url from path."))?;
 
     let mut scheme = url
         .host()
         .expect("UNC format always has a host")
-        .to_string()
-        .to_lowercase();
+        .to_string();
     scheme.retain(|c| c.is_alphabetic());
 
     let mut share = url
@@ -107,7 +105,7 @@ fn unc_path_to_url(path: &Path) -> anyhow::Result<Url> {
     path.next();
 
     Ok(dbg!(Url::parse(&format!(
-        "{}://{}{}",
+        "{}://{}/{}",
         scheme,
         share,
         path.collect::<Vec<&str>>().join("/")
@@ -197,18 +195,16 @@ impl DataSource {
         let url = make_url_from_path(&table_path)?;
         self.add_object_store_for_url(&url)?;
 
-        let table_name = url
-            .path_segments()
-            .map_or(Some(url.to_string()), |mut p| {
-                p.next().map(|s| s.to_owned())
-            })
+        let table_name = Path::new(url.path())
+            .file_stem()
+            .and_then(|s| s.to_str().to_lowercase())
             .expect("Could not convert filename to default table name");
 
         dbg!("registering source");
         // TODO: register listing table rather than
         self.ctx
             .register_parquet(
-                &table_name.to_lowercase(),
+                &table_name,
                 &url.to_string(),
                 get_read_options(&table_path)?,
             )

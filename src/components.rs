@@ -74,7 +74,7 @@ impl ShowMut for Query {
             Query::TableName(_) => None,
             Query::Sql(query) => {
                 ui.label("Query:".to_string());
-                ui.text_edit_singleline(query);
+                egui::TextEdit::singleline(query).clip_text(false).show(ui);
                 let submit = ui.button("Apply");
                 if submit.clicked() && !query.is_empty() {
                     Some(Action::QuerySource(self.clone()))
