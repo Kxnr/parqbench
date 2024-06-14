@@ -1,7 +1,7 @@
 use eframe;
 
 use crate::{
-    components::{file_dialog, Action, Popover, Settings, Show},
+    components::{file_dialog, Action, Popover, Settings, Show, ShowMut},
     data::{Data, DataResult, DataSource, Query},
 };
 use async_compat::Compat;

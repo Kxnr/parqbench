@@ -25,8 +25,12 @@ pub trait Popover {
     fn popover(&mut self, ctx: &Context) -> bool;
 }
 
-pub trait Show {
+pub trait ShowMut {
     fn show(&mut self, ui: &mut Ui) -> Option<Action>;
+}
+
+pub trait Show {
+    fn show(&self, ui: &mut Ui) -> Option<Action>;
 }
 
 pub struct Settings {}
@@ -64,7 +68,7 @@ impl Popover for anyhow::Error {
     }
 }
 
-impl Show for Query {
+impl ShowMut for Query {
     fn show(&mut self, ui: &mut Ui) -> Option<Action> {
         ui.collapsing("Query", |ui| match self {
             Query::TableName(_) => None,
@@ -85,7 +89,7 @@ impl Show for Query {
 }
 
 impl Show for Data {
-    fn show(&mut self, ui: &mut Ui) -> Option<Action> {
+    fn show(&self, ui: &mut Ui) -> Option<Action> {
         let style = &ui.style().clone();
 
         fn get_sort_state(sort_state: &Option<(String, SortState)>, col: &str) -> SortState {
@@ -174,7 +178,7 @@ impl Show for Data {
 // FIXME: parquet metadata is not loaded by either the Schema or DataSourceListing displays
 
 impl Show for Schema {
-    fn show(&mut self, ui: &mut Ui) -> Option<Action> {
+    fn show(&self, ui: &mut Ui) -> Option<Action> {
         ui.collapsing("Schema", |ui| {
             for field in self.fields.iter() {
                 ui.label(format!("{}: {}", field.name(), field.data_type()));
@@ -194,7 +198,7 @@ impl Show for Schema {
 }
 
 impl Show for DataSourceListing {
-    fn show(&mut self, ui: &mut Ui) -> Option<Action> {
+    fn show(&self, ui: &mut Ui) -> Option<Action> {
         // TODO: rename table
         ui.collapsing("Sources", |ui| {
             for (table_name, table_definition) in self.iter().sorted_by_key(|x| x.0) {

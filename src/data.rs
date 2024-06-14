@@ -106,12 +106,12 @@ fn unc_path_to_url(path: &Path) -> anyhow::Result<Url> {
         .expect("UNC path always has at least one component");
     path.next();
 
-    Ok(Url::parse(&format!(
-        "{}://{}/{}",
+    Ok(dbg!(Url::parse(&format!(
+        "{}://{}{}",
         scheme,
         share,
         path.collect::<Vec<&str>>().join("/")
-    ))?)
+    )))?)
 }
 
 fn make_url_from_path(path: &str) -> anyhow::Result<Url> {
@@ -128,7 +128,8 @@ fn make_url_from_path(path: &str) -> anyhow::Result<Url> {
         }
         Err(_) => Url::parse(path.borrow())?,
     };
-    Ok(url)
+
+    Ok(dbg!(url))
 }
 
 fn concat_record_batches(batches: Vec<RecordBatch>) -> anyhow::Result<RecordBatch> {
@@ -173,12 +174,14 @@ impl DataSource {
         match url.scheme() {
             "wsl" => {
                 let prefix = format!(
-                    r"\\?\UNC\wsl$\{}",
+                    r"\\?\UNC\wsl$\{}\",
                     url.host().expect("WSL url must have host.")
                 );
                 let object_store = LocalFileSystem::new_with_prefix(prefix)?;
                 self.ctx.register_object_store(
-                    &Url::parse(&url[url::Position::BeforeScheme..url::Position::AfterHost])?,
+                    &dbg!(Url::parse(
+                        &url[url::Position::BeforeScheme..url::Position::AfterHost]
+                    ))?,
                     Arc::new(object_store),
                 );
             }
@@ -192,7 +195,7 @@ impl DataSource {
         // TODO: pass in data source name
         // TODO: register ListingTables rather than particular formats
         let url = make_url_from_path(&table_path)?;
-        self.add_object_store_for_url(&url);
+        self.add_object_store_for_url(&url)?;
 
         let table_name = url
             .path_segments()
