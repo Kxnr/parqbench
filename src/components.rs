@@ -288,3 +288,16 @@ pub async fn file_dialog() -> Result<String, String> {
         Err("No file loaded.".to_string())
     }
 }
+
+pub async fn directory_dialog() -> Result<String, String> {
+    let dir = AsyncFileDialog::new().pick_folder().await;
+
+    if let Some(dir) = dir {
+        dir.inner()
+            .to_str()
+            .ok_or_else(|| "Could not parse path.".to_string())
+            .map(|s| s.to_string())
+    } else {
+        Err("No dir loaded.".to_string())
+    }
+}

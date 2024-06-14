@@ -70,18 +70,20 @@ pub struct Data {
     ctx: Option<SessionContext>,
 }
 
-fn get_read_options(filename: &str) -> anyhow::Result<ParquetReadOptions<'_>> {
+fn get_read_options(filename: &str) -> ParquetReadOptions<'_> {
     // TODO: use this to decide the format to load the file in, with user configurable extensions
     Path::new(filename)
         .extension()
         .and_then(OsStr::to_str)
-        .map(|s| ParquetReadOptions {
-            file_extension: s,
-            ..Default::default()
-        })
-        .ok_or(anyhow!(
-            "Could not parse filename, does this file have an extension?"
-        ))
+        .map_or_else(
+            || ParquetReadOptions {
+                ..Default::default()
+            },
+            |s| ParquetReadOptions {
+                file_extension: s,
+                ..Default::default()
+            },
+        )
 }
 
 fn unc_path_to_url(path: &Path) -> anyhow::Result<Url> {
@@ -197,17 +199,14 @@ impl DataSource {
 
         let table_name = Path::new(url.path())
             .file_stem()
-            .and_then(|s| s.to_str().to_lowercase())
-            .expect("Could not convert filename to default table name");
+            .and_then(|s| s.to_str())
+            .expect("Could not convert filename to default table name")
+            .to_lowercase();
 
         dbg!("registering source");
         // TODO: register listing table rather than
         self.ctx
-            .register_parquet(
-                &table_name,
-                &url.to_string(),
-                get_read_options(&table_path)?,
-            )
+            .register_parquet(&table_name, &url.to_string(), get_read_options(&table_path))
             .await?;
 
         Ok(table_name.to_owned())

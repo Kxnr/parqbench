@@ -1,7 +1,7 @@
 use eframe;
 
 use crate::{
-    components::{file_dialog, Action, Popover, Settings, Show, ShowMut},
+    components::{directory_dialog, file_dialog, Action, Popover, Settings, Show, ShowMut},
     data::{Data, DataResult, DataSource, Query},
 };
 use async_compat::Compat;
@@ -158,6 +158,13 @@ impl eframe::App for ParqBenchApp {
 
                     if ui.button("Open...").clicked() {
                         if let Ok(filename) = smol::block_on(file_dialog()) {
+                            self.handle_action(Action::LoadSource(filename));
+                        }
+                        ui.close_menu();
+                    }
+
+                    if ui.button("Open Directory...").clicked() {
+                        if let Ok(filename) = smol::block_on(directory_dialog()) {
                             self.handle_action(Action::LoadSource(filename));
                         }
                         ui.close_menu();
