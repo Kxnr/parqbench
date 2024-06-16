@@ -12,7 +12,6 @@ egui = "0.27"
 egui_extras = "0.27"
 eframe = { version = "0.27", features = ["persistence"] }
 datafusion = "39"
-rfd = { version = "0.14", features = ["file-handle-inner"] }
 tracing-subscriber = "0.3"
 structopt = "0.3"
 shellexpand = "*"

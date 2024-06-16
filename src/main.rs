@@ -23,6 +23,8 @@ struct Args {
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     // Log to stdout (if you run with `RUST_LOG=debug`).
+
+    use data::TableDescriptor;
     tracing_subscriber::fmt::init();
 
     let args = Args::from_args();
@@ -40,9 +42,12 @@ fn main() {
         Box::new(move |cc| {
             let mut app = layout::ParqBenchApp::new(cc);
             if let Some(filename) = args.filename {
-                app.handle_action(Action::LoadSource(filename));
+                let table =
+                    TableDescriptor::new(&filename).expect("Could not build table from filename");
+                app.handle_action(Action::LoadSource(table));
             }
             Box::new(app)
         }),
-    );
+    )
+    .expect("Could not create app");
 }

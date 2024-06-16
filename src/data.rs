@@ -5,12 +5,12 @@ use datafusion::datasource::TableProvider;
 use datafusion::execution::config::SessionConfig;
 use datafusion::logical_expr::col as col_expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use object_store::azure::MicrosoftAzureBuilder;
 use object_store::local::LocalFileSystem;
 use regex::Regex;
 use smol::future::Boxed;
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
-use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::Arc;
 use url::Url;
@@ -42,6 +42,44 @@ pub struct DataSource {
     cached_schemas: DataSourceListing,
 }
 
+pub struct TableDescriptor {
+    url: Url,
+    extension: Option<String>,
+    account: Option<String>,
+    table_name: Option<String>,
+}
+
+impl TableDescriptor {
+    pub fn new(url: &str) -> anyhow::Result<Self> {
+        let ext = Path::new(url)
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string());
+
+        Ok(Self {
+            url: make_url_from_path(&url)?,
+            extension: ext,
+            account: None,
+            table_name: None,
+        })
+    }
+
+    pub fn with_extension(mut self, extension: &str) -> Self {
+        self.extension = Some(extension.to_owned());
+        self
+    }
+
+    pub fn with_account(mut self, account: &str) -> Self {
+        self.account = Some(account.to_owned());
+        self
+    }
+
+    pub fn with_table_name(mut self, table_name: &str) -> Self {
+        self.table_name = Some(table_name.to_owned());
+        self
+    }
+}
+
 impl Default for DataSource {
     fn default() -> Self {
         let mut config = SessionConfig::new();
@@ -69,24 +107,20 @@ pub struct Data {
     pub sort_state: Option<(String, SortState)>,
 }
 
-fn get_read_options(filename: &str) -> ParquetReadOptions<'_> {
+fn get_read_options(table: &TableDescriptor) -> ParquetReadOptions<'_> {
     // TODO: use this to decide the format to load the file in, with user configurable extensions
-    Path::new(filename)
-        .extension()
-        .and_then(OsStr::to_str)
-        .map_or_else(
-            || ParquetReadOptions {
-                ..Default::default()
-            },
-            |s| ParquetReadOptions {
-                file_extension: s,
-                ..Default::default()
-            },
-        )
+    match table.extension.as_ref() {
+        Some(ext) => ParquetReadOptions {
+            file_extension: &ext,
+            ..Default::default()
+        },
+        _ => ParquetReadOptions::default(),
+    }
 }
 
 fn unc_path_to_url(path: &Path) -> anyhow::Result<Url> {
-    let url = Url::from_file_path(path).map_err(|_| anyhow!("Could not create Url from path."))?;
+    let url =
+        Url::from_directory_path(path).map_err(|_| anyhow!("Could not create Url from path."))?;
 
     let mut scheme = url
         .host()
@@ -169,17 +203,36 @@ impl DataSource {
         &self.cached_schemas
     }
 
-    fn add_object_store_for_url(&mut self, url: &Url) -> anyhow::Result<()> {
-        match url.scheme() {
+    fn add_object_store_for_table(&mut self, table: &TableDescriptor) -> anyhow::Result<()> {
+        match table.url.scheme() {
             "wsl" => {
                 let prefix = format!(
                     r"\\?\UNC\wsl$\{}\",
-                    url.host().expect("WSL url must have host.")
+                    table.url.host().expect("WSL url must have host.")
                 );
                 let object_store = LocalFileSystem::new_with_prefix(prefix)?;
                 self.ctx.register_object_store(
                     &dbg!(Url::parse(
-                        &url[url::Position::BeforeScheme..url::Position::AfterHost]
+                        &table.url[url::Position::BeforeScheme..url::Position::AfterHost]
+                    ))?,
+                    Arc::new(object_store),
+                );
+            }
+            "az" | "azure" | "abfs" | "abfss" => {
+                let object_store = MicrosoftAzureBuilder::new()
+                    .with_url(table.url.to_string())
+                    .with_account(
+                        table
+                            .account
+                            .as_ref()
+                            .ok_or(anyhow!("Account required for Azure table"))?,
+                    )
+                    .with_use_azure_cli(true)
+                    .build()?;
+                dbg!("adding azure store");
+                self.ctx.register_object_store(
+                    &dbg!(Url::parse(
+                        &table.url[url::Position::BeforeScheme..url::Position::AfterHost]
                     ))?,
                     Arc::new(object_store),
                 );
@@ -190,22 +243,27 @@ impl DataSource {
         Ok(())
     }
 
-    pub async fn add_data_source(&mut self, table_path: String) -> anyhow::Result<String> {
+    pub async fn add_data_source(&mut self, source: TableDescriptor) -> anyhow::Result<String> {
         // TODO: pass in data source name
         // TODO: register ListingTables rather than particular formats
-        let url = make_url_from_path(&table_path)?;
-        self.add_object_store_for_url(&url)?;
+        self.add_object_store_for_table(&source)?;
 
-        let table_name = Path::new(url.path())
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .expect("Could not convert filename to default table name")
-            .to_lowercase();
+        // TODO: get &str directly, rather than using String
+        let table_name = match source.table_name {
+            Some(ref table_name) => table_name.clone(),
+            _ => Path::new(&source.url.path())
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .expect("Could not convert filename to default table name")
+                .to_lowercase(),
+        };
+
+        let read_options = get_read_options(&source);
 
         dbg!("registering source");
         // TODO: register listing table rather than
         self.ctx
-            .register_parquet(&table_name, &url.to_string(), get_read_options(&table_path))
+            .register_parquet(&table_name, &source.url.to_string(), read_options)
             .await?;
 
         Ok(table_name.to_owned())

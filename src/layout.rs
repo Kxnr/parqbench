@@ -1,8 +1,8 @@
 use eframe;
 
 use crate::{
-    components::{file_dialog, Action, Popover, Settings, Show, ShowMut},
-    data::{Data, DataResult, DataSource, Query},
+    components::{Action, Popover, QueryBuilder, Settings, Show, ShowMut},
+    data::{Data, DataResult, DataSource, Query, TableDescriptor},
 };
 use async_compat::Compat;
 use core::default::Default;
@@ -13,7 +13,7 @@ use std::sync::Arc;
 pub struct ParqBenchApp {
     data_source: Arc<RwLock<DataSource>>,
     current_data: Option<Data>,
-    query: Query,
+    query: QueryBuilder,
     popover: Option<Box<dyn Popover>>,
     data_future: Option<Task<DataResult>>,
 }
@@ -22,7 +22,7 @@ impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
             data_source: Arc::new(RwLock::new(DataSource::default())),
-            query: Query::Sql("".to_owned()),
+            query: QueryBuilder::new(),
             current_data: None,
             popover: None,
             data_future: None,
@@ -37,19 +37,18 @@ impl ParqBenchApp {
     }
 
     pub fn handle_action(&mut self, action: Action) {
-        // does this need a return type?
-        dbg!(&action);
         match action {
-            Action::AddSource(filename) => {
+            Action::AddSource(table) => {
                 let data_source = self.data_source.clone();
-                smol::spawn(async move {
-                    data_source
+                smol::spawn(Compat::new(async move {
+                    let maybe_err = data_source
                         .clone()
                         .write()
                         .await
-                        .add_data_source(filename)
+                        .add_data_source(table)
                         .await;
-                })
+                    dbg!(maybe_err);
+                }))
                 .detach();
             }
             Action::QuerySource(query) => {
@@ -58,14 +57,14 @@ impl ParqBenchApp {
                     data_source.read().await.query(query).await
                 })));
             }
-            Action::LoadSource(filename) => {
+            Action::LoadSource(table) => {
                 let data_source = self.data_source.clone();
-                self.data_future = Some(smol::spawn(async move {
+                self.data_future = Some(smol::spawn(Compat::new(async move {
                     let table_name = data_source
                         .clone()
                         .write()
                         .await
-                        .add_data_source(filename)
+                        .add_data_source(table)
                         .await?;
                     dbg!(&table_name);
                     data_source
@@ -74,7 +73,7 @@ impl ParqBenchApp {
                         .await
                         .query(Query::TableName(table_name))
                         .await
-                }));
+                })));
             }
             Action::SortData((col, sort_state)) => {
                 self.current_data = self
@@ -82,14 +81,21 @@ impl ParqBenchApp {
                     .take()
                     .and_then(|data| smol::block_on(data.sort(col, sort_state)).ok());
             }
+            Action::ShowPopover(popover) => {
+                self.popover = Some(popover);
+            }
             _ => {}
         };
     }
 
     fn check_popover(&mut self, ctx: &egui::Context) {
         if let Some(popover) = &mut self.popover {
-            if !popover.popover(ctx) {
+            let (open, action) = popover.popover(ctx);
+            if !open {
                 self.popover = None;
+            }
+            if let Some(action) = action {
+                self.handle_action(action);
             }
         }
     }
@@ -127,7 +133,10 @@ impl eframe::App for ParqBenchApp {
         ctx.input(|i| {
             if let Some(file) = i.raw.dropped_files.last().clone() {
                 let filename = file.path.as_ref().unwrap().to_str().unwrap().to_string();
-                self.handle_action(Action::LoadSource(filename));
+
+                if let Ok(table) = TableDescriptor::new(&filename) {
+                    self.handle_action(Action::LoadSource(table));
+                }
             }
         });
 
@@ -156,13 +165,6 @@ impl eframe::App for ParqBenchApp {
                         ui.label("Built with egui");
                     });
 
-                    if ui.button("Open...").clicked() {
-                        if let Ok(filename) = smol::block_on(file_dialog()) {
-                            self.handle_action(Action::LoadSource(filename));
-                        }
-                        ui.close_menu();
-                    }
-
                     if ui.button("Settings...").clicked() {
                         self.popover = Some(Box::new(Settings {}));
                         ui.close_menu();
@@ -181,7 +183,12 @@ impl eframe::App for ParqBenchApp {
                 // TODO: collapsing headers
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.collapsing("Data", |ui| {
-                        smol::block_on(self.data_source.write_blocking().list_tables()).show(ui);
+                        let action =
+                            smol::block_on(self.data_source.write_blocking().list_tables())
+                                .show(ui);
+                        if let Some(action) = action {
+                            self.handle_action(action)
+                        }
                         if let Some(query) = self.query.show(ui) {
                             self.handle_action(query);
                         }
@@ -206,7 +213,7 @@ impl eframe::App for ParqBenchApp {
                     }
                 } else {
                     ui.centered_and_justified(|ui| {
-                        ui.label("Drag and drop parquet file here.");
+                        ui.label("Drag and drop data source here, or use Add Source menu");
                     });
                 }
             });

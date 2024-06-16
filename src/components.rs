@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::data::{Data, DataSourceListing, Query, SortState};
+use crate::data::{Data, DataSourceListing, Query, SortState, TableDescriptor};
 use datafusion::arrow::{
     datatypes::{DataType, Schema},
     util::display::array_value_to_string,
@@ -9,20 +9,21 @@ use egui::{Context, Response, Ui};
 use egui_extras::{Column, TableBuilder};
 use egui_json_tree::JsonTree;
 use itertools::Itertools;
-use rfd::AsyncFileDialog;
 use serde_json::Value;
+use url::Url;
 
-#[derive(Debug)]
 pub enum Action {
-    AddSource(String),
+    AddSource(TableDescriptor),
     QuerySource(Query),
-    LoadSource(String),
+    LoadSource(TableDescriptor),
     DeleteSource,
     SortData((String, SortState)),
+    ShowPopover(Box<dyn Popover>),
 }
 
 pub trait Popover {
-    fn popover(&mut self, ctx: &Context) -> bool;
+    // TODO: make Popover a property of the app, not a component
+    fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>);
 }
 
 pub trait ShowMut {
@@ -35,56 +36,130 @@ pub trait Show {
 
 pub struct Settings {}
 
+pub struct QueryBuilder {
+    query: String,
+}
+
+impl QueryBuilder {
+    pub fn new() -> Self {
+        QueryBuilder {
+            query: "".to_owned(),
+        }
+    }
+}
+
+pub struct AddDataSource {
+    account: String,
+    url: String,
+    extension: String,
+    table_name: String,
+}
+
 impl Popover for Settings {
-    fn popover(&mut self, ctx: &Context) -> bool {
+    fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>) {
         let mut open = true;
 
         egui::Window::new("Settings")
             .collapsible(false)
             .open(&mut open)
             .show(ctx, |ui| {
-                ctx.style_ui(ui);
-                ui.set_enabled(false);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ctx.style_ui(ui);
+                });
             });
 
-        open
+        (open, None)
     }
 }
 
 impl Popover for anyhow::Error {
-    fn popover(&mut self, ctx: &Context) -> bool {
+    fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>) {
         let mut open = true;
 
         egui::Window::new("Error")
             .collapsible(false)
             .open(&mut open)
             .show(ctx, |ui| {
-                // eprintln!("{:?}", self);
-                ui.label(format!("Error: {}", self));
-                ui.set_enabled(false);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.label(format!("Error: {:?}", self));
+                    ui.set_enabled(false);
+                });
             });
 
-        open
+        (open, None)
     }
 }
 
-impl ShowMut for Query {
+impl Default for AddDataSource {
+    fn default() -> Self {
+        AddDataSource {
+            url: "".to_owned(),
+            extension: "parquet".to_owned(),
+            account: "".to_owned(),
+            table_name: "".to_owned(),
+        }
+    }
+}
+
+impl Popover for AddDataSource {
+    fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>) {
+        let mut open = true;
+        let mut action: Option<Action> = None;
+        egui::Window::new("Configure Data Source")
+            .collapsible(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Uri");
+                    ui.text_edit_singleline(&mut self.url);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Extension");
+                    ui.text_edit_singleline(&mut self.extension);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Table Name");
+                    ui.text_edit_singleline(&mut self.table_name);
+                });
+                if Url::parse(&self.url).is_ok_and(|url| match url.scheme() {
+                    // TODO: extract into constants
+                    "az" | "azure" => true,
+                    _ => false,
+                }) {
+                    ui.horizontal(|ui| {
+                        ui.label("Account");
+                        ui.text_edit_singleline(&mut self.account);
+                    });
+                }
+                if ui.button("ok").clicked() {
+                    if let Ok(mut table) = TableDescriptor::new(&self.url) {
+                        if !self.extension.is_empty() {
+                            table = table.with_extension(&self.extension);
+                        }
+                        if !self.account.is_empty() {
+                            table = table.with_account(&self.account);
+                        }
+                        if !self.account.is_empty() {
+                            table = table.with_account(&self.account);
+                        }
+                        action = Some(Action::AddSource(table));
+                    }
+                }
+            });
+
+        (open, action)
+    }
+}
+
+impl ShowMut for QueryBuilder {
     fn show(&mut self, ui: &mut Ui) -> Option<Action> {
         ui.horizontal(|ui| {
-            match self {
-                Query::TableName(query) => {
-                    ui.label("Table Name".to_string());
-                    egui::TextEdit::singleline(query).clip_text(true).show(ui);
-                }
-
-                Query::Sql(query) => {
-                    ui.label("SQL Query:".to_string());
-                    egui::TextEdit::singleline(query).clip_text(true).show(ui);
-                }
-            }
-            let submit = ui.button("Apply");
+            egui::TextEdit::singleline(&mut self.query)
+                .clip_text(true)
+                .show(ui);
+            let submit = ui.button("Query");
             if submit.clicked() {
-                Some(Action::QuerySource(self.clone()))
+                Some(Action::QuerySource(Query::Sql(self.query.to_owned())))
             } else {
                 None
             }
@@ -205,6 +280,7 @@ impl Show for Schema {
 impl Show for DataSourceListing {
     fn show(&self, ui: &mut Ui) -> Option<Action> {
         // TODO: rename table
+        let mut action = None;
         ui.collapsing("Sources", |ui| {
             for (table_name, table_definition) in self.iter().sorted_by_key(|x| x.0) {
                 ui.collapsing(table_name, |ui| {
@@ -212,8 +288,11 @@ impl Show for DataSourceListing {
                     Arc::make_mut(&mut table_definition.schema()).show(ui);
                 });
             }
+            if ui.button("Add Source").clicked() {
+                action = Some(Action::ShowPopover(Box::new(AddDataSource::default())));
+            }
         });
-        None
+        action
     }
 }
 
@@ -278,18 +357,5 @@ impl ExtraInteractions for Ui {
             response.mark_changed();
         };
         response
-    }
-}
-
-pub async fn file_dialog() -> Result<String, String> {
-    let file = AsyncFileDialog::new().pick_file().await;
-
-    if let Some(file) = file {
-        file.inner()
-            .to_str()
-            .ok_or_else(|| "Could not parse path.".to_string())
-            .map(|s| s.to_string())
-    } else {
-        Err("No file loaded.".to_string())
     }
 }
