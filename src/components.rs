@@ -1,271 +1,350 @@
-use crate::data::{DataFilters, ParquetData, SortState};
-use crate::TableName;
-use datafusion::arrow::{util::display::array_value_to_string, datatypes::DataType};
-use egui::{Context, Response, Ui, WidgetText};
-use egui_extras::{Size, TableBuilder};
-use parquet::basic::ColumnOrder;
-use parquet::file::metadata::{KeyValue, ParquetMetaData};
-use parquet::file::reader::{FileReader, SerializedFileReader};
-use rfd::AsyncFileDialog;
-use std::fs::File;
-use std::path::Path;
+use std::sync::Arc;
+
+use crate::data::{Data, DataSourceListing, Query, SortState, TableDescriptor};
+use datafusion::arrow::{
+    datatypes::{DataType, Schema},
+    util::display::array_value_to_string,
+};
+use egui::{Context, Response, Ui};
+use egui_extras::{Column, TableBuilder};
+use egui_file_dialog::FileDialog;
+use egui_json_tree::JsonTree;
+use itertools::Itertools;
+use serde_json::Value;
+
+pub enum Action {
+    AddSource(TableDescriptor),
+    QuerySource(Query),
+    LoadSource(TableDescriptor),
+    DeleteSource,
+    SortData((String, SortState)),
+    ShowPopover(Box<dyn Popover>),
+}
 
 pub trait Popover {
-    fn show(&mut self, ctx: &Context) -> bool;
+    // TODO: make Popover a property of the app, not a component
+    fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>);
+}
+
+pub trait ShowMut {
+    fn show(&mut self, ui: &mut Ui) -> Option<Action>;
+}
+
+pub trait Show {
+    fn show(&self, ui: &mut Ui) -> Option<Action>;
 }
 
 pub struct Settings {}
 
+#[derive(Default)]
+pub struct QueryBuilder {
+    query: String,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum SourceType {
+    Azure,
+    Local,
+}
+
+pub struct AddDataSource {
+    // controls what configuration menu to show
+    source_type: SourceType,
+    file_dialog: Option<FileDialog>,
+    account: String,
+    container: String,
+    path: String,
+    extension: String,
+    table_name: String,
+    read_metadata: bool,
+}
+
 impl Popover for Settings {
-    fn show(&mut self, ctx: &Context) -> bool {
+    fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>) {
         let mut open = true;
 
         egui::Window::new("Settings")
             .collapsible(false)
             .open(&mut open)
             .show(ctx, |ui| {
-                ctx.style_ui(ui);
-                ui.set_enabled(false);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ctx.style_ui(ui);
+                });
             });
 
-        open
+        (open, None)
     }
 }
 
-pub struct Error {
-    pub message: String,
-}
-
-impl Popover for Error {
-    fn show(&mut self, ctx: &Context) -> bool {
+impl Popover for anyhow::Error {
+    fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>) {
         let mut open = true;
 
         egui::Window::new("Error")
             .collapsible(false)
             .open(&mut open)
             .show(ctx, |ui| {
-                ui.label(format!("Error: {}", self.message));
-                ui.set_enabled(false);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.label(format!("Error: {:?}", self));
+                    ui.set_enabled(false);
+                });
             });
 
-        open
+        (open, None)
     }
 }
 
-pub struct QueryPane {
-    filename: String,
-    table_name: String,
-    query: String,
-}
-
-impl QueryPane {
-    pub fn new(filename: Option<String>, filters: DataFilters) -> Self {
-        Self {
-            filename: filename.unwrap_or_default(),
-            query: filters.query.unwrap_or_default(),
-            table_name: filters.table_name.to_string(),
+impl Default for AddDataSource {
+    fn default() -> Self {
+        AddDataSource {
+            source_type: SourceType::Local,
+            file_dialog: None,
+            account: "".to_owned(),
+            container: "".to_owned(),
+            path: "".to_owned(),
+            extension: "".to_owned(),
+            table_name: "".to_owned(),
+            read_metadata: true,
         }
     }
+}
 
-    pub fn render(&mut self, ui: &mut Ui) -> Option<(String, DataFilters)> {
-        ui.label("Filename:".to_string());
-        ui.text_edit_singleline(&mut self.filename);
+impl AddDataSource {
+    fn build(&self) -> anyhow::Result<TableDescriptor> {
+        let mut table = match self.source_type {
+            SourceType::Azure => {
+                TableDescriptor::new(&format!("az://{}/{}", self.container, self.path))?
+                    .with_account(&self.account)
+            }
+            SourceType::Local => TableDescriptor::new(&self.path)?,
+        };
+        if !self.extension.is_empty() {
+            table = table.with_extension(&self.extension);
+        }
+        table = table.with_load_metadata(self.read_metadata);
+        if !self.table_name.is_empty() {
+            table = table.with_table_name(&self.table_name);
+        }
+        Ok(table)
+    }
+}
 
-        ui.label("Table Name:".to_string());
-        ui.text_edit_singleline(&mut self.table_name);
+impl Popover for AddDataSource {
+    fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>) {
+        let mut open = true;
+        let mut action: Option<Action> = None;
+        egui::Window::new("Configure Data Source")
+            .collapsible(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.source_type, SourceType::Local, "Local");
+                    ui.selectable_value(&mut self.source_type, SourceType::Azure, "Azure");
+                });
 
-        ui.label("Query:".to_string());
-        ui.text_edit_singleline(&mut self.query);
+                ui.horizontal(|ui| {
+                    ui.label("Table Name");
+                    ui.text_edit_singleline(&mut self.table_name);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Extension");
+                    ui.text_edit_singleline(&mut self.extension);
+                });
+                match self.source_type {
+                    SourceType::Local => {
+                        ui.horizontal(|ui| {
+                            ui.label("Path");
+                            ui.text_edit_singleline(&mut self.path);
+                            if ui.button("Browse...").clicked() {
+                                let dialog = self.file_dialog.get_or_insert(FileDialog::new());
+                                dialog.select_file();
+                            };
+                            if let Some(path) = self.file_dialog.as_mut().and_then(|dialog| {
+                                dialog.update(ctx).selected().map(|pth| {
+                                    pth.to_str()
+                                        .expect("Could not convert path to String")
+                                        .to_owned()
+                                })
+                            }) {
+                                self.path = path;
+                            }
+                        });
+                    }
+                    SourceType::Azure => {
+                        // TODO: support https:// url that includes account, container, and path
+                        ui.horizontal(|ui| {
+                            ui.label("Account");
+                            ui.text_edit_singleline(&mut self.account);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Container");
+                            ui.text_edit_singleline(&mut self.container);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Path");
+                            ui.text_edit_singleline(&mut self.path);
+                        });
+                    }
+                }
+                ui.checkbox(&mut self.read_metadata, "Read Metadata");
+                ui.horizontal(|ui| {
+                    // TODO: close dialog
+                    if ui.button("add").clicked() {
+                        if let Ok(table) = self.build() {
+                            action = Some(Action::AddSource(table));
+                        }
+                    }
+                    if ui.button("load").clicked() {
+                        if let Ok(table) = self.build() {
+                            action = Some(Action::LoadSource(table));
+                        }
+                    }
+                });
+            });
 
-        let submit = ui.button("Apply");
-        if submit.clicked() && !self.query.is_empty() {
-            Some((
-                self.filename.clone(),
-                DataFilters {
-                    query: Some(self.query.clone()),
-                    table_name: TableName {name: self.table_name.clone() },
-                    ..Default::default()
-                },
-            ))
+        (open, action)
+    }
+}
+
+impl ShowMut for QueryBuilder {
+    fn show(&mut self, ui: &mut Ui) -> Option<Action> {
+        egui::TextEdit::multiline(&mut self.query)
+            .clip_text(true)
+            .show(ui);
+        let submit = ui.button("Query");
+        if submit.clicked() {
+            Some(Action::QuerySource(Query::Sql(self.query.to_owned())))
         } else {
             None
         }
     }
 }
 
-pub struct FileMetadata {
-    info: ParquetMetaData,
-}
-
-impl FileMetadata {
-    pub fn from_filename(filename: &str) -> Result<Self, String> {
-        // while possible, digging this out of datafusion is immensely painful.
-        // reading with parquet is mildly less so.
-        let path = Path::new(filename);
-        if let Ok(file) = File::open(path) {
-            let reader = SerializedFileReader::new(file).unwrap();
-            Ok(Self {
-                info: reader.metadata().to_owned(),
-            })
-        } else {
-            Err("Could not read metadata from file.".to_string())
-        }
-    }
-
-    // Lots of metadata available here, if anything else is of interest.
-
-    pub fn render_metadata(&self, ui: &mut Ui) {
-        let file_metadata = self.info.file_metadata();
-        ui.label(format!("version: {}", file_metadata.version()));
-        ui.label(format!(
-            "created by: {}",
-            file_metadata.created_by().unwrap_or("unknown")
-        ));
-        ui.label(format!("row groups: {}", self.info.num_row_groups()));
-        ui.label(format!("rows: {}", file_metadata.num_rows()));
-        ui.label(format!(
-            "columns: {}",
-            file_metadata.schema_descr().num_columns()
-        ));
-        if let Some(key_value) = file_metadata.key_value_metadata() {
-            for KeyValue { key, value } in key_value {
-                ui.label(format!(
-                    "{}: {}",
-                    key,
-                    value.to_owned().unwrap_or_else(|| "-".to_string())
-                ));
-            }
-        }
-    }
-
-    pub fn render_schema(&self, ui: &mut Ui) {
-        let file_metadata = self.info.file_metadata();
-        for (idx, field) in file_metadata.schema_descr().columns().iter().enumerate() {
-            ui.collapsing(field.name(), |ui| {
-                let field_type = field.self_type();
-                let field_type = if field_type.is_primitive() {
-                    format!("{}", field_type.get_physical_type())
-                } else {
-                    format!("{}", field.converted_type())
-                };
-                ui.label(format!("type: {}", field_type));
-                ui.label(format!(
-                    "sort_order: {}",
-                    match file_metadata.column_order(idx) {
-                        ColumnOrder::TYPE_DEFINED_ORDER(sort_order) => format!("{}", sort_order),
-                        _ => "undefined".to_string(),
-                    }
-                ));
-            });
-        }
-    }
-}
-
-impl ParquetData {
-    pub fn render_table(&self, ui: &mut Ui) -> Option<DataFilters> {
+impl Show for Data {
+    fn show(&self, ui: &mut Ui) -> Option<Action> {
         let style = &ui.style().clone();
 
-        fn is_sorted_column(sorted_col: &Option<SortState>, col: String) -> bool {
-            match sorted_col {
-                Some(sort) => match sort {
-                    SortState::Ascending(sorted_col) => *sorted_col == col,
-                    SortState::Descending(sorted_col) => *sorted_col == col,
-                    _ => false,
-                },
-                None => false,
+        fn get_sort_state(sort_state: &Option<(String, SortState)>, col: &str) -> SortState {
+            match sort_state {
+                Some((sorted_col, sort_state)) => {
+                    if *sorted_col == col {
+                        sort_state.to_owned()
+                    } else {
+                        SortState::NotSorted
+                    }
+                }
+                _ => SortState::NotSorted,
             }
         }
 
-        let mut filters: Option<DataFilters> = None;
-        let mut sorted_column = self.filters.sort.clone();
-
         let text_height = egui::TextStyle::Body.resolve(style).size;
+        // stop columns from getting too small to be usable
+        let min_col_width = style.spacing.interact_size.x;
 
-        let initial_col_width = (ui.available_width() - style.spacing.scroll_bar_width)
-            / (self.data.num_columns() + 1) as f32;
-
-        // stop columns from resizing to smaller than the window--remainder stops the last column
-        // growing, which we explicitly want to allow for the case of large datatypes.
-        let min_col_width = if style.spacing.interact_size.x > initial_col_width {
-            style.spacing.interact_size.x
-        } else {
-            initial_col_width / 4.0
-        };
-
+        // we put buttons in the header, so make sure that the vertical size of the header includes
+        // the button size and the normal padding around buttons
         let header_height = style.spacing.interact_size.y + (2.0f32 * style.spacing.item_spacing.y);
+        let mut action: Option<Action> = None;
 
         // FIXME: this will certainly break if there are no columns
         TableBuilder::new(ui)
             .striped(true)
             .stick_to_bottom(true)
-            .clip(true)
+            .auto_shrink(false)
             .columns(
-                Size::initial(initial_col_width).at_least(min_col_width),
+                Column::remainder().at_least(min_col_width).clip(true),
                 self.data.num_columns(),
             )
             .resizable(true)
             .header(header_height, |mut header| {
                 for field in self.data.schema().fields() {
                     header.col(|ui| {
-                        let column_label =
-                            if is_sorted_column(&sorted_column, field.name().to_string()) {
-                                sorted_column.clone().unwrap()
-                            } else {
-                                SortState::NotSorted(field.name().to_string())
-                            };
+                        let column_name = field.name().to_string();
+                        let mut sort_state = get_sort_state(&self.sort_state, &column_name);
                         ui.horizontal_centered(|ui| {
-                            let response = ui.sort_button(&mut sorted_column, column_label.clone());
+                            let response = ui.multi_state_button(&mut sort_state, &column_name);
                             if response.clicked() {
-                                filters = Some(DataFilters {
-                                    sort: sorted_column.clone(),
-                                    ..self.filters.clone()
-                                });
+                                action = Some(Action::SortData((column_name.clone(), sort_state)));
                             }
                         });
                     });
                 }
             })
             .body(|body| {
-                body.rows(
-                    text_height,
-                    self.data.num_rows(),
-                    |row_index, mut row| {
-                        for data_col in self.data.columns() {
-                            row.col(|ui| {
-                                // while not efficient (as noted in docs) we need to display
-                                // at most a few dozen records at a time (barring pathological
-                                // tables with absurd numbers of columns) and should still
-                                // have conversion times on the order of ns.
-                                ui.with_layout(
-
-
-                                    if is_integer(data_col.data_type()) {
-                                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight)
-                                    } else if is_float(data_col.data_type()) {
-                                        egui::Layout::right_to_left(egui::Align::Center)
-                                    } else {
-                                        egui::Layout::left_to_right(egui::Align::Center)
-                                    }.with_main_wrap(false),
-
-                                    /*
-                                    match data_col.data_type() {
-                                        DataType::Float64 | DataType::Float32 => egui::Layout::right_to_left(egui::Align::Center).with_main_wrap(false),
-                                        _ => egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(false),
-                                    },
-                                    */
-
-                                    |ui| {
-                                        let value =
-                                            array_value_to_string(data_col, row_index).unwrap();
-                                        ui.label(value);
-                                    },
-                                );
-                            });
-                        }
-                    },
-                );
+                body.rows(text_height, self.data.num_rows(), |mut row| {
+                    for data_col in self.data.columns() {
+                        let index = row.index();
+                        row.col(|ui| {
+                            // while not efficient (as noted in docs) we need to display
+                            // at most a few dozen records at a time (barring pathological
+                            // tables with absurd numbers of columns) and should still
+                            // have conversion times on the order of ns.
+                            // TODO: have separate value layout function
+                            ui.with_layout(
+                                if is_integer(data_col.data_type()) {
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    )
+                                } else if is_float(data_col.data_type()) {
+                                    egui::Layout::right_to_left(egui::Align::Center)
+                                } else {
+                                    egui::Layout::left_to_right(egui::Align::Center)
+                                }
+                                .with_main_wrap(false),
+                                |ui| {
+                                    let value = array_value_to_string(data_col, index).unwrap();
+                                    ui.label(value);
+                                },
+                            );
+                        });
+                    }
+                });
             });
-        filters
+        action
+    }
+}
+
+// FIXME: parquet metadata is not loaded by either the Schema or DataSourceListing displays
+
+impl Show for Schema {
+    fn show(&self, ui: &mut Ui) -> Option<Action> {
+        ui.collapsing("Schema", |ui| {
+            for field in self.fields.iter() {
+                ui.label(format!("{}: {}", field.name(), field.data_type()));
+            }
+        });
+        ui.collapsing("Metadata", |ui| {
+            for (key, value) in self.metadata.iter() {
+                if let Ok(json) = serde_json::from_str::<Value>(value) {
+                    JsonTree::new(key, &json).show(ui);
+                } else {
+                    ui.label(format!("{}: {}", key, value));
+                }
+            }
+        });
+        None
+    }
+}
+
+impl Show for DataSourceListing {
+    fn show(&self, ui: &mut Ui) -> Option<Action> {
+        // TODO: rename table
+        let mut action = None;
+        ui.collapsing("Sources", |ui| {
+            for (table_name, table_definition) in self.iter().sorted_by_key(|x| x.0) {
+                ui.collapsing(table_name, |ui| {
+                    // TODO: show shouldn't need an `&mut` for read only views
+                    Arc::make_mut(&mut table_definition.schema()).show(ui);
+                    if ui.button("Load").clicked() {
+                        action = Some(Action::QuerySource(Query::TableName(table_name.to_owned())));
+                    }
+                });
+            }
+            if ui.button("Add Source").clicked() {
+                action = Some(Action::ShowPopover(Box::<AddDataSource>::default()));
+            }
+        });
+        action
     }
 }
 
@@ -273,105 +352,62 @@ fn is_integer(t: &DataType) -> bool {
     use DataType::*;
     matches!(
         t,
-        UInt8
-            | UInt16
-            | UInt32
-            | UInt64
-            | Int8
-            | Int16
-            | Int32
-            | Int64
+        UInt8 | UInt16 | UInt32 | UInt64 | Int8 | Int16 | Int32 | Int64
     )
 }
 
 fn is_float(t: &DataType) -> bool {
     use DataType::*;
-    matches!(
-        t,
-        Float32 | Float64
-    )
+    matches!(t, Float32 | Float64)
 }
 
-impl SelectionDepth<String> for SortState {
+pub trait SelectionDepth {
+    // TODO: https://stackoverflow.com/questions/25867875/how-do-i-toggle-through-enum-variants
+    fn inc(&self) -> Self;
+
+    fn reset(&self) -> Self;
+
+    fn format(&self) -> String;
+}
+
+impl SelectionDepth for SortState {
     fn inc(&self) -> Self {
         match self {
-            SortState::NotSorted(col) => SortState::Descending(col.to_owned()),
-            SortState::Ascending(col) => SortState::Descending(col.to_owned()),
-            SortState::Descending(col) => SortState::Ascending(col.to_owned()),
+            SortState::Ascending => SortState::Descending,
+            SortState::Descending => SortState::Ascending,
+            SortState::NotSorted => SortState::Ascending,
         }
     }
 
     fn reset(&self) -> Self {
         // one day, I'll be proficient enough with macros that they'll be worth the time...
-        match self {
-            SortState::NotSorted(col) => SortState::NotSorted(col.to_owned()),
-            SortState::Ascending(col) => SortState::NotSorted(col.to_owned()),
-            SortState::Descending(col) => SortState::NotSorted(col.to_owned()),
-        }
+        SortState::NotSorted
     }
 
     fn format(&self) -> String {
         match self {
-            SortState::Descending(col) => format!("\u{23f7} {}", col),
-            SortState::Ascending(col) => format!("\u{23f6} {}", col),
-            SortState::NotSorted(col) => format!("\u{2195} {}", col),
+            SortState::Ascending => "\u{23f7}",
+            SortState::Descending => "\u{23f6}",
+            SortState::NotSorted => "\u{2195}",
         }
+        .to_owned()
     }
-}
-
-pub trait SelectionDepth<Icon> {
-    fn inc(&self) -> Self;
-
-    fn reset(&self) -> Self;
-
-    fn format(&self) -> Icon
-    where
-        Icon: Into<WidgetText>;
 }
 
 pub trait ExtraInteractions {
-    fn sort_button<Value: PartialEq + SelectionDepth<Icon>, Icon: Into<WidgetText>>(
-        &mut self,
-        current_value: &mut Option<Value>,
-        selected_value: Value,
-    ) -> Response;
+    fn multi_state_button(&mut self, state: &mut impl SelectionDepth, label: &str) -> Response;
 }
 
 impl ExtraInteractions for Ui {
-    fn sort_button<Value: PartialEq + SelectionDepth<Icon>, Icon: Into<WidgetText>>(
-        &mut self,
-        current_value: &mut Option<Value>,
-        selected_value: Value,
-    ) -> Response {
-        let selected = match current_value {
-            Some(value) => *value == selected_value,
-            None => false,
-        };
-        let mut response = self.selectable_label(selected, selected_value.format());
+    fn multi_state_button(&mut self, state: &mut impl SelectionDepth, label: &str) -> Response {
+        // TODO: this implementation doesn't implement column selection or mutual exclusivity,
+        // TODO: but is very simple, the three/multistate toggle idea is worth revisiting at some
+        // TODO: point
+        let mut response = self.button(format!("{} {}", state.format(), label));
         if response.clicked() {
-            if selected {
-                *current_value = Some(selected_value.inc());
-            } else {
-                if let Some(value) = current_value {
-                    value.reset();
-                }
-                *current_value = Some(selected_value.inc());
-            };
+            *state = state.inc();
             response.mark_changed();
-        }
+        };
         response
-    }
-}
-
-pub async fn file_dialog() -> Result<String, String> {
-    let file = AsyncFileDialog::new().pick_file().await;
-
-    if let Some(file) = file {
-        file.inner()
-            .to_str()
-            .ok_or_else(|| "Could not parse path.".to_string())
-            .map(|s| s.to_string())
-    } else {
-        Err("No file loaded.".to_string())
     }
 }

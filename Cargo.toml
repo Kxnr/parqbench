@@ -4,20 +4,27 @@ version = "0.2.2"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Connor Keane <connor.keane@kxnr.me"]
-rust-version = "1.64"
+rust-version = "1.78"
 description = "A utility for viewing parquet files built on egui."
 
 [dependencies]
-egui = "~0.19"
-egui_extras = "~0.19"
-eframe = { version = "~0.19", features = ["persistence"] }
-datafusion = "~8"
-rfd = { version ="~0.10", features = ["file-handle-inner"] }
-tokio = { version = "1.21.1", features = ["rt", "sync"] }
+egui = "0.27"
+egui_extras = "0.27"
+eframe = { version = "0.27", features = ["persistence"] }
+datafusion = "39"
 tracing-subscriber = "0.3"
-structopt = "~0.3"
+structopt = "0.3"
 shellexpand = "*"
-parquet = "*"
+anyhow = "1.0.86"
+egui-file-dialog = "0.5.0"
+egui_json_tree = "0.5.1"
+smol = "2.0.0"
+serde_json = "1.0.117"
+async-compat = "0.2.4"
+itertools = "0.13.0"
+regex = "1.10.5"
+url = "2.5.1"
+object_store = { version = "0.10.1", features = ["azure", "aws"] }
 
 [features]
 default = []

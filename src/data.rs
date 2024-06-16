@@ -1,177 +1,327 @@
+use datafusion::arrow::compute::concat_batches;
+use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::DFSchema;
-use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::col;
+use datafusion::datasource::TableProvider;
+use datafusion::execution::config::SessionConfig;
+use datafusion::logical_expr::col as col_expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use std::ffi::IntoStringError;
-use std::future::Future;
-use std::str::FromStr;
-use std::sync::Arc;
+use object_store::azure::MicrosoftAzureBuilder;
+use object_store::local::LocalFileSystem;
+use regex::Regex;
+use smol::future::Boxed;
+use std::borrow::Borrow;
+use std::collections::BTreeMap;
 use std::path::Path;
-use std::ffi::OsStr;
+use std::sync::Arc;
+use url::Url;
 
-pub type DataResult = Result<ParquetData, String>;
-pub type DataFuture = Box<dyn Future<Output = DataResult> + Unpin + Send + 'static>;
+use anyhow::anyhow;
 
-fn get_read_options(filename: &str) -> Option<ParquetReadOptions<'_>> {
-    Path::new(filename).extension().and_then(OsStr::to_str).map(|s| {
-        ParquetReadOptions {file_extension: s, ..Default::default()}
-    })
+pub type DataResult = anyhow::Result<Data>;
+pub type DataFuture = Boxed<DataResult>;
+pub type DataSourceListing = BTreeMap<String, Arc<dyn TableProvider>>;
+
+const UNC_REGEX: &str = r"\\\\\?\\UNC\\([A-Za-z0-9_.$●-]+)\\([A-Za-z0-9_.$●-]+)\\";
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum SortState {
+    NotSorted,
+    Ascending,
+    Descending,
 }
 
-// fn normalize_path(filename: &str) -> Option<String> {
-//     Path::new(filename).canonicalize().ok()?.to_str().map(|s| format!("file:///{}", s).to_string())
-//     // Path::new(filename).canonicalize().ok()?.to_str().map(|s| s.to_string())
-// }
-
-#[derive(Debug, Clone)]
-pub struct TableName {
-    pub name: String,
+#[derive(Clone, Debug)]
+pub enum Query {
+    TableName(String),
+    Sql(String),
 }
 
-impl Default for TableName {
+// #[derive(Default)]
+pub struct DataSource {
+    ctx: SessionContext,
+    cached_schemas: DataSourceListing,
+}
+
+pub struct TableDescriptor {
+    url: Url,
+    extension: Option<String>,
+    account: Option<String>,
+    table_name: Option<String>,
+    load_metadata: bool,
+}
+
+impl TableDescriptor {
+    pub fn new(url: &str) -> anyhow::Result<Self> {
+        let ext = Path::new(url)
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string());
+
+        Ok(Self {
+            url: make_url_from_path(url)?,
+            extension: ext,
+            account: None,
+            table_name: None,
+            load_metadata: true,
+        })
+    }
+
+    pub fn with_extension(mut self, extension: &str) -> Self {
+        self.extension = Some(extension.to_owned());
+        self
+    }
+
+    pub fn with_account(mut self, account: &str) -> Self {
+        self.account = Some(account.to_owned());
+        self
+    }
+
+    pub fn with_load_metadata(mut self, flag: bool) -> Self {
+        self.load_metadata = flag;
+        self
+    }
+
+    pub fn with_table_name(mut self, table_name: &str) -> Self {
+        self.table_name = Some(table_name.to_owned());
+        self
+    }
+}
+
+impl Default for DataSource {
     fn default() -> Self {
+        let mut config = SessionConfig::new();
+        config.options_mut().execution.parquet.enable_page_index = true;
+        config.options_mut().execution.parquet.pushdown_filters = true;
+        config.options_mut().execution.parquet.pruning = true;
+        config.options_mut().execution.parquet.reorder_filters = true;
+        config.options_mut().execution.parquet.skip_metadata = false;
+        config.options_mut().execution.collect_statistics = false;
+        config.options_mut().catalog.information_schema = true;
+        dbg!(&config);
+
         Self {
-            name: "main".to_string(),
+            ctx: SessionContext::new_with_config(config),
+            cached_schemas: BTreeMap::new(),
         }
     }
-}
-
-impl FromStr for TableName {
-    type Err = IntoStringError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self { name: s.to_owned() })
-    }
-}
-
-impl ToString for TableName {
-    fn to_string(&self) -> String {
-        self.name.to_owned()
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct DataFilters {
-    pub sort: Option<SortState>,
-    pub table_name: TableName,
-    pub query: Option<String>,
 }
 
 #[derive(Clone)]
-pub struct ParquetData {
-    pub filename: String,
+pub struct Data {
+    // TOOD: arc context into this struct?
     pub data: RecordBatch,
-    pub filters: DataFilters,
-    dataframe: Arc<DataFrame>,
+    pub query: Query,
+    pub sort_state: Option<(String, SortState)>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub enum SortState {
-    NotSorted(String),
-    Ascending(String),
-    Descending(String),
+fn get_read_options(table: &TableDescriptor) -> ParquetReadOptions<'_> {
+    // TODO: use this to decide the format to load the file in, with user configurable extensions
+    match table.extension.as_ref() {
+        Some(ext) => ParquetReadOptions {
+            file_extension: ext,
+            skip_metadata: Some(!table.load_metadata),
+            ..Default::default()
+        },
+        _ => ParquetReadOptions {
+            skip_metadata: Some(!table.load_metadata),
+            ..Default::default()
+        },
+    }
 }
 
-fn concat_record_batches(batches: Vec<RecordBatch>) -> RecordBatch {
-    RecordBatch::concat(&batches[0].schema(), &batches).unwrap()
+fn unc_path_to_url(path: &Path) -> anyhow::Result<Url> {
+    let url =
+        Url::from_directory_path(path).map_err(|_| anyhow!("Could not create Url from path."))?;
+
+    let mut scheme = url
+        .host()
+        .expect("UNC format always has a host")
+        .to_string();
+    scheme.retain(|c| c.is_alphabetic());
+
+    let mut share = url
+        .path_segments()
+        .and_then(|mut splt| splt.next())
+        .expect("UNC format always has a share")
+        .to_lowercase();
+    share.retain(|c| c.is_alphabetic());
+    let mut path = url
+        .path_segments()
+        .expect("UNC path always has at least one component");
+    path.next();
+
+    Ok(dbg!(Url::parse(&format!(
+        "{}://{}/{}",
+        scheme,
+        share,
+        path.collect::<Vec<&str>>().join("/")
+    )))?)
 }
 
-impl ParquetData {
-    pub async fn load(filename: String) -> Result<Self, String> {
-        let filename = shellexpand::full(&filename)
-            .map_err(|err| err.to_string())?
-            .to_string();
+fn make_url_from_path(path: &str) -> anyhow::Result<Url> {
+    let path = shellexpand::full(path)?.into_owned();
+    let unc_prefix_regex = Regex::new(UNC_REGEX).expect("Hardcoded regex");
 
-        dbg!(&filename);
-
-        let ctx = SessionContext::new();
-        match ctx
-            .read_parquet(&filename, get_read_options(&filename).ok_or("Could not set read options. Does this file have a valid extension?".to_string())?)
-            .await
-        {
-            Ok(df) => {
-                let data = df.collect().await.unwrap();
-                let data = concat_record_batches(data);
-                Ok(ParquetData {
-                    filename,
-                    data,
-                    dataframe: df,
-                    filters: DataFilters::default(),
-                })
+    let url = match std::fs::canonicalize(Path::new(&path)) {
+        Ok(path) => {
+            match unc_prefix_regex.find(path.to_str().expect("Could not convert path to string.")) {
+                Some(_) => unc_path_to_url(&path)?,
+                None => Url::from_directory_path(path)
+                    .map_err(|_| anyhow!("Could not parse directory"))?,
             }
-            Err(msg) => Err(format!("{}", msg)),
         }
-    }
+        Err(_) => Url::parse(path.borrow())?,
+    };
 
-    pub async fn load_with_query(filename: String, filters: DataFilters) -> Result<Self, String> {
-        let filename = shellexpand::full(&filename)
-            .map_err(|err| err.to_string())?
-            .to_string();
+    Ok(dbg!(url))
+}
 
-        dbg!(&filename);
+fn concat_record_batches(batches: Vec<RecordBatch>) -> anyhow::Result<RecordBatch> {
+    concat_batches(
+        &batches.first().ok_or(anyhow!("Data is empty."))?.schema(),
+        batches.iter(),
+    )
+    .map_err(|err| anyhow!(err))
+}
 
-        let ctx = SessionContext::new();
-        ctx.register_parquet(
-            filters.table_name.to_string().as_str(),
-            &filename,
-            get_read_options(&filename).ok_or("Could not set read options. Does this file have a valid extension?".to_string())?,
-        )
-        .await
-        .ok();
-
-        match &filters.query {
-            Some(query) => match ctx.sql(query.as_str()).await {
-                Ok(df) => match df.collect().await {
-                    Ok(data) => {
-                        let data = concat_record_batches(data);
-                        let data = ParquetData {
-                            filename: filename.to_owned(),
-                            data,
-                            dataframe: df,
-                            filters,
-                        };
-                        data.sort(None).await
+impl DataSource {
+    pub async fn list_tables(&mut self) -> &DataSourceListing {
+        // TODO: is there anything to be done to simplify this arrow?
+        for catalog_name in self.ctx.catalog_names() {
+            let catalog = self.ctx.catalog(&catalog_name);
+            if let Some(catalog) = catalog {
+                for schema_name in catalog.schema_names() {
+                    let schema = catalog.schema(&schema_name);
+                    if let Some(schema) = schema {
+                        for table_name in schema.table_names() {
+                            #[allow(clippy::map_entry)]
+                            if !self.cached_schemas.contains_key(&table_name) {
+                                if let Some(table) = schema
+                                    .table(&table_name)
+                                    .await
+                                    .expect("Failure to load registered table.")
+                                {
+                                    self.cached_schemas.insert(table_name, table);
+                                };
+                            }
+                        }
                     }
-                    Err(msg) => Err(msg.to_string()),
-                },
-                Err(msg) => Err(msg.to_string()), // two classes of error, sql and file
-            },
-            None => Err("No query provided".to_string()),
-        }
-    }
-
-    pub async fn sort(self, filters: Option<DataFilters>) -> Result<Self, String> {
-        let filters = match filters {
-            Some(filters) => filters,
-            None => self.filters.clone(),
-        };
-
-        match filters.sort.as_ref() {
-            Some(sort) => {
-                let (_col, ascending) = match sort {
-                    SortState::Ascending(col) => (col, true),
-                    SortState::Descending(col) => (col, false),
-                    _ => panic!(""),
-                };
-                match self.dataframe.sort(vec![col(_col).sort(ascending, false)]) {
-                    Ok(df) => match df.collect().await {
-                        Ok(data) => Ok(ParquetData {
-                            filename: self.filename,
-                            data: concat_record_batches(data),
-                            dataframe: df,
-                            filters,
-                        }),
-                        Err(_) => Err("Error sorting data".to_string()),
-                    },
-                    Err(_) => Err("Could not sort data with given filters".to_string()),
                 }
             }
-            None => Ok(ParquetData { filters, ..self }),
         }
+        &self.cached_schemas
     }
 
-    pub fn metadata(&self) -> &DFSchema {
-        self.dataframe.schema()
+    fn add_object_store_for_table(&mut self, table: &TableDescriptor) -> anyhow::Result<()> {
+        match table.url.scheme() {
+            "wsl" => {
+                let prefix = format!(
+                    r"\\?\UNC\wsl$\{}\",
+                    table.url.host().expect("WSL url must have host.")
+                );
+                let object_store = LocalFileSystem::new_with_prefix(prefix)?;
+                self.ctx.register_object_store(
+                    &dbg!(Url::parse(
+                        &table.url[url::Position::BeforeScheme..url::Position::AfterHost]
+                    ))?,
+                    Arc::new(object_store),
+                );
+            }
+            "az" | "azure" | "abfs" | "abfss" => {
+                let object_store = MicrosoftAzureBuilder::new()
+                    .with_url(table.url.to_string())
+                    .with_account(
+                        table
+                            .account
+                            .as_ref()
+                            .ok_or(anyhow!("Account required for Azure table"))?,
+                    )
+                    .with_use_azure_cli(true)
+                    .build()?;
+                dbg!("adding azure store");
+                self.ctx.register_object_store(
+                    &dbg!(Url::parse(
+                        &table.url[url::Position::BeforeScheme..url::Position::AfterHost]
+                    ))?,
+                    Arc::new(object_store),
+                );
+            }
+            _ => {}
+        };
+
+        Ok(())
+    }
+
+    pub async fn add_data_source(&mut self, source: TableDescriptor) -> anyhow::Result<String> {
+        // TODO: pass in data source name
+        // TODO: register ListingTables rather than particular formats
+        self.add_object_store_for_table(&source)?;
+
+        // TODO: get &str directly, rather than using String
+        let table_name = match source.table_name {
+            Some(ref table_name) => table_name.clone(),
+            _ => Path::new(&source.url.path())
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .expect("Could not convert filename to default table name")
+                .to_lowercase(),
+        };
+
+        let read_options = get_read_options(&source);
+
+        dbg!("registering source");
+        // TODO: register listing table rather than
+        self.ctx
+            .register_parquet(&table_name, source.url.as_ref(), read_options)
+            .await?;
+
+        Ok(table_name.to_owned())
+    }
+
+    pub async fn query(&self, query: Query) -> anyhow::Result<Data> {
+        let df = match &query {
+            Query::TableName(table) => self.ctx.table(table.to_lowercase()).await?,
+            Query::Sql(query) => self.ctx.sql(query).await?,
+        };
+
+        let data = df.collect().await?;
+
+        Ok(Data {
+            // TODO: will record batches have the same schema, or should these really be
+            // TODO: separate data entries?
+            data: concat_record_batches(data)?,
+            query,
+            sort_state: None,
+        })
+    }
+}
+
+impl Data {
+    pub async fn sort(self, col: String, sort: SortState) -> anyhow::Result<Self> {
+        // TODO: should this be a clone of the exising context?
+        // TODO: make successive queries able to be registered to the context, so that comple
+        // TODO: queries can be constructed?
+        let ctx = SessionContext::new();
+        let mut df = ctx.read_batch(self.data)?;
+        df = match &sort {
+            // consider null "less" than real values, so they can get surfaced
+            SortState::Ascending => df.sort(vec![col_expr(&col).sort(true, false)])?,
+            SortState::Descending => df.sort(vec![col_expr(&col).sort(false, true)])?,
+            _ => df,
+        };
+
+        let data = df.collect().await?;
+
+        Ok(Data {
+            // TODO: will record batches have the same schema, or should these really be
+            // TODO: separate data entries?
+            data: concat_record_batches(data)?,
+            query: self.query,
+            sort_state: Some((col, sort)),
+        })
+    }
+
+    pub fn schema(&self) -> Arc<Schema> {
+        self.data.schema()
     }
 }

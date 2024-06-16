@@ -5,23 +5,6 @@
 
 A simple, cross-platform, utility for viewing parquet files, built on egui and arrow.
 
-## TODO List
-
-- [ ] CI for builds/releases
-- [ ] load partitioned dataset
-- [ ] tab layout/tree
-- [x] add controls and metadata to side panels
-- [ ] parse pandas format metadata
-- [x] open with hooks (cmd line args)
-- [x] notification for errors
-- [ ] support all filetypes supported by datafusion
-- [x] Update datafusion and egui/eframe
-- [ ] Auto resize columns
-- [ ] revisit &str vs String usages
-- [ ] Ui for basic query operations
-- [ ] source configuration in query pane
-- [x] rich metadata with parquet crate
-
 ## Installation
 
 Generic, portable binaries for Windows and Linux are available on the [releases page](https://github.com/Kxnr/parqbench/releases).
@@ -35,4 +18,5 @@ The builds are self-contained, portable, executables. The resulting binaries are
 
 ## Contribution
 
-Please contribute! I'm learning Rust and this is my first 'major' project using it, so any and all feedback is welcome. I'm working on this intermittently and will review PRs/comments/issues on a roughly weekly basis.
+I revisit this project intermittently, if there's something you'd like to see please open an issue
+describing the current and desired behaviors.
