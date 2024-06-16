@@ -14,6 +14,7 @@ pub struct ParqBenchApp {
     data_source: Arc<RwLock<DataSource>>,
     current_data: Option<Data>,
     query: QueryBuilder,
+    // TODO: separate error popover and modal dialog
     popover: Option<Box<dyn Popover>>,
     data_future: Option<Task<DataResult>>,
 }
@@ -22,7 +23,7 @@ impl Default for ParqBenchApp {
     fn default() -> Self {
         Self {
             data_source: Arc::new(RwLock::new(DataSource::default())),
-            query: QueryBuilder::new(),
+            query: QueryBuilder::default(),
             current_data: None,
             popover: None,
             data_future: None,
@@ -47,7 +48,8 @@ impl ParqBenchApp {
                         .await
                         .add_data_source(table)
                         .await;
-                    dbg!(maybe_err);
+                    // FIXME: show error popover
+                    _ = dbg!(maybe_err);
                 }))
                 .detach();
             }
@@ -131,7 +133,7 @@ impl eframe::App for ParqBenchApp {
         let loading = self.check_data_future();
 
         ctx.input(|i| {
-            if let Some(file) = i.raw.dropped_files.last().clone() {
+            if let Some(file) = i.raw.dropped_files.last() {
                 let filename = file.path.as_ref().unwrap().to_str().unwrap().to_string();
 
                 if let Ok(table) = TableDescriptor::new(&filename) {

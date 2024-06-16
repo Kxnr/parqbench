@@ -36,16 +36,9 @@ pub trait Show {
 
 pub struct Settings {}
 
+#[derive(Default)]
 pub struct QueryBuilder {
     query: String,
-}
-
-impl QueryBuilder {
-    pub fn new() -> Self {
-        QueryBuilder {
-            query: "".to_owned(),
-        }
-    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -271,10 +264,7 @@ impl Show for Data {
                         ui.horizontal_centered(|ui| {
                             let response = ui.multi_state_button(&mut sort_state, &column_name);
                             if response.clicked() {
-                                action = Some(Action::SortData((
-                                    column_name.clone(),
-                                    sort_state.clone(),
-                                )));
+                                action = Some(Action::SortData((column_name.clone(), sort_state)));
                             }
                         });
                     });
@@ -351,7 +341,7 @@ impl Show for DataSourceListing {
                 });
             }
             if ui.button("Add Source").clicked() {
-                action = Some(Action::ShowPopover(Box::new(AddDataSource::default())));
+                action = Some(Action::ShowPopover(Box::<AddDataSource>::default()));
             }
         });
         action

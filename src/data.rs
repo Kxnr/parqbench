@@ -58,7 +58,7 @@ impl TableDescriptor {
             .map(|s| s.to_string());
 
         Ok(Self {
-            url: make_url_from_path(&url)?,
+            url: make_url_from_path(url)?,
             extension: ext,
             account: None,
             table_name: None,
@@ -118,7 +118,7 @@ fn get_read_options(table: &TableDescriptor) -> ParquetReadOptions<'_> {
     // TODO: use this to decide the format to load the file in, with user configurable extensions
     match table.extension.as_ref() {
         Some(ext) => ParquetReadOptions {
-            file_extension: &ext,
+            file_extension: ext,
             skip_metadata: Some(!table.load_metadata),
             ..Default::default()
         },
@@ -194,16 +194,14 @@ impl DataSource {
                     let schema = catalog.schema(&schema_name);
                     if let Some(schema) = schema {
                         for table_name in schema.table_names() {
+                            #[allow(clippy::map_entry)]
                             if !self.cached_schemas.contains_key(&table_name) {
-                                match schema
+                                if let Some(table) = schema
                                     .table(&table_name)
                                     .await
                                     .expect("Failure to load registered table.")
                                 {
-                                    Some(table) => {
-                                        self.cached_schemas.insert(table_name, table);
-                                    }
-                                    _ => {}
+                                    self.cached_schemas.insert(table_name, table);
                                 };
                             }
                         }
@@ -274,7 +272,7 @@ impl DataSource {
         dbg!("registering source");
         // TODO: register listing table rather than
         self.ctx
-            .register_parquet(&table_name, &source.url.to_string(), read_options)
+            .register_parquet(&table_name, source.url.as_ref(), read_options)
             .await?;
 
         Ok(table_name.to_owned())
@@ -283,7 +281,7 @@ impl DataSource {
     pub async fn query(&self, query: Query) -> anyhow::Result<Data> {
         let df = match &query {
             Query::TableName(table) => self.ctx.table(table.to_lowercase()).await?,
-            Query::Sql(query) => self.ctx.sql(&query).await?,
+            Query::Sql(query) => self.ctx.sql(query).await?,
         };
 
         let data = df.collect().await?;
