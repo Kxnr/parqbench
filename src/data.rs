@@ -47,6 +47,7 @@ pub struct TableDescriptor {
     extension: Option<String>,
     account: Option<String>,
     table_name: Option<String>,
+    load_metadata: bool,
 }
 
 impl TableDescriptor {
@@ -61,6 +62,7 @@ impl TableDescriptor {
             extension: ext,
             account: None,
             table_name: None,
+            load_metadata: true,
         })
     }
 
@@ -71,6 +73,11 @@ impl TableDescriptor {
 
     pub fn with_account(mut self, account: &str) -> Self {
         self.account = Some(account.to_owned());
+        self
+    }
+
+    pub fn with_load_metadata(mut self, flag: bool) -> Self {
+        self.load_metadata = flag;
         self
     }
 
@@ -112,9 +119,13 @@ fn get_read_options(table: &TableDescriptor) -> ParquetReadOptions<'_> {
     match table.extension.as_ref() {
         Some(ext) => ParquetReadOptions {
             file_extension: &ext,
+            skip_metadata: Some(!table.load_metadata),
             ..Default::default()
         },
-        _ => ParquetReadOptions::default(),
+        _ => ParquetReadOptions {
+            skip_metadata: Some(!table.load_metadata),
+            ..Default::default()
+        },
     }
 }
 

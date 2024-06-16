@@ -7,10 +7,10 @@ use datafusion::arrow::{
 };
 use egui::{Context, Response, Ui};
 use egui_extras::{Column, TableBuilder};
+use egui_file_dialog::FileDialog;
 use egui_json_tree::JsonTree;
 use itertools::Itertools;
 use serde_json::Value;
-use url::Url;
 
 pub enum Action {
     AddSource(TableDescriptor),
@@ -48,11 +48,22 @@ impl QueryBuilder {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum SourceType {
+    Azure,
+    Local,
+}
+
 pub struct AddDataSource {
+    // controls what configuration menu to show
+    source_type: SourceType,
+    file_dialog: Option<FileDialog>,
     account: String,
-    url: String,
+    container: String,
+    path: String,
     extension: String,
     table_name: String,
+    read_metadata: bool,
 }
 
 impl Popover for Settings {
@@ -93,11 +104,35 @@ impl Popover for anyhow::Error {
 impl Default for AddDataSource {
     fn default() -> Self {
         AddDataSource {
-            url: "".to_owned(),
-            extension: "parquet".to_owned(),
+            source_type: SourceType::Local,
+            file_dialog: None,
             account: "".to_owned(),
+            container: "".to_owned(),
+            path: "".to_owned(),
+            extension: "".to_owned(),
             table_name: "".to_owned(),
+            read_metadata: true,
         }
+    }
+}
+
+impl AddDataSource {
+    fn build(&self) -> anyhow::Result<TableDescriptor> {
+        let mut table = match self.source_type {
+            SourceType::Azure => {
+                TableDescriptor::new(&format!("az://{}/{}", self.container, self.path))?
+                    .with_account(&self.account)
+            }
+            SourceType::Local => TableDescriptor::new(&self.path)?,
+        };
+        if !self.extension.is_empty() {
+            table = table.with_extension(&self.extension);
+        }
+        table = table.with_load_metadata(self.read_metadata);
+        if !self.table_name.is_empty() {
+            table = table.with_table_name(&self.table_name);
+        }
+        Ok(table)
     }
 }
 
@@ -110,41 +145,68 @@ impl Popover for AddDataSource {
             .open(&mut open)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Uri");
-                    ui.text_edit_singleline(&mut self.url);
+                    ui.selectable_value(&mut self.source_type, SourceType::Local, "Local");
+                    ui.selectable_value(&mut self.source_type, SourceType::Azure, "Azure");
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Table Name");
+                    ui.text_edit_singleline(&mut self.table_name);
                 });
                 ui.horizontal(|ui| {
                     ui.label("Extension");
                     ui.text_edit_singleline(&mut self.extension);
                 });
-                ui.horizontal(|ui| {
-                    ui.label("Table Name");
-                    ui.text_edit_singleline(&mut self.table_name);
-                });
-                if Url::parse(&self.url).is_ok_and(|url| match url.scheme() {
-                    // TODO: extract into constants
-                    "az" | "azure" => true,
-                    _ => false,
-                }) {
-                    ui.horizontal(|ui| {
-                        ui.label("Account");
-                        ui.text_edit_singleline(&mut self.account);
-                    });
-                }
-                if ui.button("ok").clicked() {
-                    if let Ok(mut table) = TableDescriptor::new(&self.url) {
-                        if !self.extension.is_empty() {
-                            table = table.with_extension(&self.extension);
-                        }
-                        if !self.account.is_empty() {
-                            table = table.with_account(&self.account);
-                        }
-                        if !self.account.is_empty() {
-                            table = table.with_account(&self.account);
-                        }
-                        action = Some(Action::AddSource(table));
+                match self.source_type {
+                    SourceType::Local => {
+                        ui.horizontal(|ui| {
+                            ui.label("Path");
+                            ui.text_edit_singleline(&mut self.path);
+                            if ui.button("Browse...").clicked() {
+                                let dialog = self.file_dialog.get_or_insert(FileDialog::new());
+                                dialog.select_file();
+                            };
+                            if let Some(path) = self.file_dialog.as_mut().and_then(|dialog| {
+                                dialog.update(ctx).selected().map(|pth| {
+                                    pth.to_str()
+                                        .expect("Could not convert path to String")
+                                        .to_owned()
+                                })
+                            }) {
+                                self.path = path;
+                            }
+                        });
+                    }
+                    SourceType::Azure => {
+                        // TODO: support https:// url that includes account, container, and path
+                        ui.horizontal(|ui| {
+                            ui.label("Account");
+                            ui.text_edit_singleline(&mut self.account);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Container");
+                            ui.text_edit_singleline(&mut self.container);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Path");
+                            ui.text_edit_singleline(&mut self.path);
+                        });
                     }
                 }
+                ui.checkbox(&mut self.read_metadata, "Read Metadata");
+                ui.horizontal(|ui| {
+                    // TODO: close dialog
+                    if ui.button("add").clicked() {
+                        if let Ok(table) = self.build() {
+                            action = Some(Action::AddSource(table));
+                        }
+                    }
+                    if ui.button("load").clicked() {
+                        if let Ok(table) = self.build() {
+                            action = Some(Action::LoadSource(table));
+                        }
+                    }
+                });
             });
 
         (open, action)
@@ -153,18 +215,15 @@ impl Popover for AddDataSource {
 
 impl ShowMut for QueryBuilder {
     fn show(&mut self, ui: &mut Ui) -> Option<Action> {
-        ui.horizontal(|ui| {
-            egui::TextEdit::singleline(&mut self.query)
-                .clip_text(true)
-                .show(ui);
-            let submit = ui.button("Query");
-            if submit.clicked() {
-                Some(Action::QuerySource(Query::Sql(self.query.to_owned())))
-            } else {
-                None
-            }
-        })
-        .inner
+        egui::TextEdit::multiline(&mut self.query)
+            .clip_text(true)
+            .show(ui);
+        let submit = ui.button("Query");
+        if submit.clicked() {
+            Some(Action::QuerySource(Query::Sql(self.query.to_owned())))
+        } else {
+            None
+        }
     }
 }
 
@@ -286,6 +345,9 @@ impl Show for DataSourceListing {
                 ui.collapsing(table_name, |ui| {
                     // TODO: show shouldn't need an `&mut` for read only views
                     Arc::make_mut(&mut table_definition.schema()).show(ui);
+                    if ui.button("Load").clicked() {
+                        action = Some(Action::QuerySource(Query::TableName(table_name.to_owned())));
+                    }
                 });
             }
             if ui.button("Add Source").clicked() {
