@@ -46,10 +46,7 @@ impl DataContainer {
     }
 
     fn pending(&self) -> bool {
-        match self {
-            Self::Pending(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Pending(_))
     }
 }
 

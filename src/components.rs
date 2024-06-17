@@ -368,8 +368,7 @@ impl EditableLabel for Ui {
                     dbg!("selected");
                     self.memory_mut(|mem| {
                         mem.data
-                            .insert_temp(id, Arc::new(Mutex::new(label.to_owned())))
-                            .clone()
+                            .insert_temp(id, Arc::new(Mutex::new(label.to_owned())));
                     });
                 }
                 None
