@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    borrow::Borrow,
+    sync::{Arc, Mutex},
+};
 
 use crate::data::{Data, DataSourceListing, Query, SortState, TableDescriptor};
 use datafusion::arrow::{
@@ -7,7 +10,7 @@ use datafusion::arrow::{
 };
 use egui::{Context, Id, Response, Ui};
 use egui_extras::{Column, TableBuilder};
-use egui_file_dialog::{DialogState, FileDialog};
+use egui_file_dialog::FileDialog;
 use egui_json_tree::JsonTree;
 use itertools::Itertools;
 use serde_json::Value;
@@ -136,6 +139,8 @@ impl Popover for AddDataSource {
                             ui.selectable_value(&mut self.source_type, SourceType::Local, "Local");
                             ui.selectable_value(&mut self.source_type, SourceType::Azure, "Azure");
                         });
+
+                        ui.checkbox(&mut self.read_metadata, "Read Metadata");
                         ui.end_row();
 
                         if let SourceType::Azure = self.source_type {
@@ -144,9 +149,6 @@ impl Popover for AddDataSource {
                             );
                             ui.end_row()
                         }
-
-                        ui.checkbox(&mut self.read_metadata, "Read Metadata");
-                        ui.end_row();
 
                         ui.label("Table Name");
                         ui.text_edit_singleline(&mut self.table_name);
@@ -170,10 +172,7 @@ impl Popover for AddDataSource {
                                 if let Some(dialog) = self.file_dialog.as_mut() {
                                     dialog.update(ctx);
                                     if let Some(path) = dialog.take_selected() {
-                                        self.path = path
-                                            .to_str()
-                                            .expect("Could not convert path to String")
-                                            .to_owned()
+                                        self.path = path.to_string_lossy().into_owned();
                                     };
                                 }
                             }
@@ -193,9 +192,8 @@ impl Popover for AddDataSource {
                             }
                         }
                         ui.end_row();
-                        // empty row to space out buttons
-                        ui.end_row();
                     });
+                ui.add_space(ui.style().spacing.interact_size.y);
                 ui.vertical_centered_justified(|ui| {
                     if ui.button("add").clicked() {
                         if let Ok(table) = self.build() {
