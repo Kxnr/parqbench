@@ -140,13 +140,6 @@ impl Popover for AddDataSource {
                         ui.checkbox(&mut self.read_metadata, "Read Metadata");
                         ui.end_row();
 
-                        if let SourceType::Azure = self.source_type {
-                            ui.label(
-                                "Requires the azure cli to be installed and available on PATH",
-                            );
-                            ui.end_row()
-                        }
-
                         ui.label("Table Name");
                         ui.text_edit_singleline(&mut self.table_name);
                         ui.end_row();
@@ -190,6 +183,10 @@ impl Popover for AddDataSource {
                         }
                         ui.end_row();
                     });
+                if let SourceType::Azure = self.source_type {
+                    ui.label("Requires the azure cli to be installed and available on PATH");
+                }
+
                 ui.add_space(ui.style().spacing.interact_size.y);
                 ui.vertical_centered_justified(|ui| {
                     if ui.button("add").clicked() {
