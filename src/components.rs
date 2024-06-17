@@ -1,24 +1,30 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::data::{Data, DataSourceListing, Query, SortState, TableDescriptor};
 use datafusion::arrow::{
     datatypes::{DataType, Schema},
     util::display::array_value_to_string,
 };
-use egui::{Context, Response, Ui};
+use egui::{Context, Id, Response, Ui};
 use egui_extras::{Column, TableBuilder};
-use egui_file_dialog::FileDialog;
+use egui_file_dialog::{DialogState, FileDialog};
 use egui_json_tree::JsonTree;
 use itertools::Itertools;
 use serde_json::Value;
+
+pub type ErrorLog = Vec<anyhow::Error>;
+type FromName = String;
+type ToName = String;
 
 pub enum Action {
     AddSource(TableDescriptor),
     QuerySource(Query),
     LoadSource(TableDescriptor),
-    DeleteSource,
+    DeleteSource(String),
+    RenameSource((FromName, ToName)),
     SortData((String, SortState)),
     ShowPopover(Box<dyn Popover>),
+    LogError(anyhow::Error),
 }
 
 pub trait Popover {
@@ -33,8 +39,6 @@ pub trait ShowMut {
 pub trait Show {
     fn show(&self, ui: &mut Ui) -> Option<Action>;
 }
-
-pub struct Settings {}
 
 #[derive(Default)]
 pub struct QueryBuilder {
@@ -59,37 +63,25 @@ pub struct AddDataSource {
     read_metadata: bool,
 }
 
-impl Popover for Settings {
+impl Popover for ErrorLog {
     fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>) {
         let mut open = true;
 
-        egui::Window::new("Settings")
+        egui::Window::new("Error Log")
             .collapsible(false)
             .open(&mut open)
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ctx.style_ui(ui);
-                });
+                egui::ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .show(ui, |ui| {
+                        egui::Grid::new("error log").show(ui, |ui| {
+                            for err in self.iter() {
+                                ui.label(format!("{}", err));
+                                ui.end_row();
+                            }
+                        });
+                    });
             });
-
-        (open, None)
-    }
-}
-
-impl Popover for anyhow::Error {
-    fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>) {
-        let mut open = true;
-
-        egui::Window::new("Error")
-            .collapsible(false)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.label(format!("Error: {:?}", self));
-                    ui.set_enabled(false);
-                });
-            });
-
         (open, None)
     }
 }
@@ -168,18 +160,25 @@ impl Popover for AddDataSource {
                                 ui.label("Path");
                                 ui.text_edit_singleline(&mut self.path);
                                 if ui.button("Browse...").clicked() {
-                                    let dialog = self.file_dialog.get_or_insert(FileDialog::new());
+                                    let dialog = self.file_dialog.get_or_insert(
+                                        FileDialog::new().show_path_edit_button(true),
+                                    );
                                     dialog.select_file();
                                 };
                                 ui.end_row();
 
-                                if let Some(path) = self.file_dialog.as_mut().and_then(|dialog| {
-                                    dialog.update(ctx).selected().map(|pth| {
-                                        pth.to_str()
-                                            .expect("Could not convert path to String")
-                                            .to_owned()
+                                if let Some(path) = self
+                                    .file_dialog
+                                    .as_mut()
+                                    .filter(|fd| fd.state() != DialogState::Closed)
+                                    .and_then(|dialog| {
+                                        dialog.update(ctx).selected().map(|pth| {
+                                            pth.to_str()
+                                                .expect("Could not convert path to String")
+                                                .to_owned()
+                                        })
                                     })
-                                }) {
+                                {
                                     self.path = path;
                                 };
                             }
@@ -199,20 +198,23 @@ impl Popover for AddDataSource {
                             }
                         }
                         ui.end_row();
-                        ui.scope(|ui| {
-                            if ui.button("add").clicked() {
-                                if let Ok(table) = self.build() {
-                                    action = Some(Action::AddSource(table));
-                                }
-                            }
-                            if ui.button("load").clicked() {
-                                if let Ok(table) = self.build() {
-                                    action = Some(Action::LoadSource(table));
-                                }
-                            }
-                        });
+                        // empty row to space out buttons
                         ui.end_row();
                     });
+                ui.vertical_centered_justified(|ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("add").clicked() {
+                            if let Ok(table) = self.build() {
+                                action = Some(Action::AddSource(table));
+                            }
+                        }
+                        if ui.button("load").clicked() {
+                            if let Ok(table) = self.build() {
+                                action = Some(Action::LoadSource(table));
+                            }
+                        }
+                    });
+                });
             });
 
         (open, action)
@@ -339,12 +341,62 @@ impl Show for Schema {
     }
 }
 
+trait EditableLabel {
+    fn editable_label(&mut self, id: Id, label: &str) -> Option<String>;
+}
+
+impl EditableLabel for Ui {
+    fn editable_label(&mut self, id: Id, label: &str) -> Option<String> {
+        type State = Arc<Mutex<String>>;
+
+        let current_label: Option<State> = self.memory_mut(|mem| mem.data.get_temp(id).clone());
+        match current_label.as_ref() {
+            Some(label) => {
+                let mut label = label
+                    .lock()
+                    .expect("Failed to retrieve label from persisted State");
+                let response = self.text_edit_singleline(&mut *label);
+                if response.lost_focus() {
+                    self.memory_mut(|mem| mem.data.remove::<State>(id));
+                    Some(label.to_string())
+                } else {
+                    None
+                }
+            }
+            None => {
+                if self.selectable_label(false, label).clicked() {
+                    dbg!("selected");
+                    self.memory_mut(|mem| {
+                        mem.data
+                            .insert_temp(id, Arc::new(Mutex::new(label.to_owned())))
+                            .clone()
+                    });
+                }
+                None
+            }
+        }
+    }
+}
+
 impl Show for DataSourceListing {
     fn show(&self, ui: &mut Ui) -> Option<Action> {
         // TODO: rename table
         let mut action = None;
         for (table_name, table_definition) in self.iter().sorted_by_key(|x| x.0) {
-            ui.collapsing(table_name, |ui| {
+            egui::collapsing_header::CollapsingState::load_with_default_open(
+                ui.ctx(),
+                format!("{} data source listing", table_name).into(),
+                false,
+            )
+            .show_header(ui, |ui| {
+                if let Some(rename) = ui.editable_label(table_name.to_owned().into(), table_name) {
+                    action = Some(Action::RenameSource((table_name.to_owned(), rename)));
+                }
+                if ui.small_button("✖").clicked() {
+                    action = Some(Action::DeleteSource(table_name.to_owned()));
+                }
+            })
+            .body(|ui| {
                 table_definition.schema().show(ui);
                 if ui.button("Load").clicked() {
                     action = Some(Action::QuerySource(Query::TableName(table_name.to_owned())));

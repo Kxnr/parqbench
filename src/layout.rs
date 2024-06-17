@@ -2,7 +2,7 @@ use eframe;
 use egui::Layout;
 
 use crate::{
-    components::{Action, Popover, QueryBuilder, Settings, Show, ShowMut},
+    components::{Action, ErrorLog, Popover, QueryBuilder, Show, ShowMut},
     data::{Data, DataResult, DataSource, Query, TableDescriptor},
 };
 use async_compat::Compat;
@@ -53,6 +53,13 @@ impl DataContainer {
     }
 }
 
+#[derive(Default)]
+struct DisplayStates {
+    popover: bool,
+    error: bool,
+    settings: bool,
+}
+
 pub struct ParqBenchApp {
     data_source: Arc<RwLock<DataSource>>,
     current_data: DataContainer,
@@ -60,6 +67,8 @@ pub struct ParqBenchApp {
     // TODO: separate error popover and modal dialog
     popover: Option<Box<dyn Popover>>,
     error_log_channel: (Sender<anyhow::Error>, Receiver<anyhow::Error>),
+    errors: ErrorLog,
+    display_states: DisplayStates,
 }
 
 impl Default for ParqBenchApp {
@@ -70,6 +79,8 @@ impl Default for ParqBenchApp {
             current_data: DataContainer::None,
             popover: None,
             error_log_channel: channel(),
+            errors: vec![],
+            display_states: DisplayStates::default(),
         }
     }
 }
@@ -124,24 +135,62 @@ impl ParqBenchApp {
             Action::ShowPopover(popover) => {
                 self.popover = Some(popover);
             }
-            _ => {}
+            Action::LogError(err) => {
+                self.errors.push(err);
+            }
+            Action::DeleteSource(table) => {
+                if let Err(err) = self
+                    .data_source
+                    .clone()
+                    .write_blocking()
+                    .delete_data_source(&table)
+                {
+                    self.errors.push(err);
+                };
+            }
+            Action::RenameSource((from_name, to_name)) => {
+                if let Err(err) = self
+                    .data_source
+                    .clone()
+                    .write_blocking()
+                    .rename_data_source(&from_name, &to_name)
+                {
+                    self.errors.push(err);
+                };
+            }
         };
     }
 
     fn check_error_channel(&mut self) {
         if let Ok(err) = self.error_log_channel.1.try_recv() {
-            self.handle_action(Action::ShowPopover(Box::new(err)));
+            self.handle_action(Action::LogError(err));
         }
     }
 
-    fn check_popover(&mut self, ctx: &egui::Context) {
-        if let Some(popover) = &mut self.popover {
-            let (open, action) = popover.popover(ctx);
-            if !open {
-                self.popover = None;
-            }
-            if let Some(action) = action {
-                self.handle_action(action);
+    fn check_floating_displays(&mut self, ctx: &egui::Context) {
+        egui::Window::new("Settings")
+            .collapsible(false)
+            .open(&mut self.display_states.settings)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .show(ui, |ui| {
+                        ctx.style_ui(ui);
+                    });
+            });
+
+        if self.display_states.error {
+            let (open, _) = self.errors.popover(ctx);
+            self.display_states.error = open;
+        }
+
+        if self.display_states.popover {
+            if let Some(popover) = &mut self.popover {
+                let (open, action) = popover.popover(ctx);
+                self.display_states.popover = open;
+                if let Some(action) = action {
+                    self.handle_action(action);
+                }
             }
         }
     }
@@ -152,8 +201,8 @@ impl ParqBenchApp {
                 Ok(data) => {
                     self.current_data = DataContainer::Some(data);
                 }
-                Err(msg) => {
-                    self.handle_action(Action::ShowPopover(Box::new(msg)));
+                Err(err) => {
+                    self.handle_action(Action::LogError(err));
                     self.current_data = DataContainer::None;
                 }
             };
@@ -169,7 +218,7 @@ impl eframe::App for ParqBenchApp {
         //////////
 
         self.check_error_channel();
-        self.check_popover(ctx);
+        self.check_floating_displays(ctx);
         let loading = self.check_data_future();
 
         ctx.input(|i| {
@@ -189,7 +238,7 @@ impl eframe::App for ParqBenchApp {
         //////////
         //   Using static layout until I put together a TabTree that can make this dynamic
         //
-        //   | menu_bar            |
+        //   | header              |
         //   -----------------------
         //   |       |             |
         //   | query |     main    |
@@ -205,9 +254,29 @@ impl eframe::App for ParqBenchApp {
                 egui::warn_if_debug_build(ui);
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("⚙").clicked() {
-                        self.popover = Some(Box::new(Settings {}));
+                        self.display_states.settings = true;
                     }
                 });
+            });
+        });
+
+        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if let Some(err) = self.errors.last() {
+                    let text = egui::RichText::new(format!("⚠ {}: {}", self.errors.len(), err))
+                        .color(ui.style().visuals.error_fg_color);
+                    if ui
+                        .add(
+                            egui::Label::new(text)
+                                .truncate(true)
+                                .sense(egui::Sense::click()),
+                        )
+                        .clicked()
+                    {
+                        // FIXME: use an action for self-referential popovers
+                        self.display_states.error = true;
+                    }
+                };
             });
         });
 
@@ -215,19 +284,28 @@ impl eframe::App for ParqBenchApp {
             .resizable(true)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.heading("Data Sources");
-                    ui.separator();
-                    let action =
-                        smol::block_on(self.data_source.write_blocking().list_tables()).show(ui);
-                    if let Some(action) = action {
-                        self.handle_action(action)
-                    }
-                    ui.add_space(4f32);
-                    ui.heading("Query");
-                    ui.separator();
-                    if let Some(query) = self.query.show(ui) {
-                        self.handle_action(query);
-                    }
+                    egui::Grid::new("side_panel").num_columns(1).show(ui, |ui| {
+                        ui.heading("Data Sources");
+                        ui.end_row();
+                        ui.vertical(|ui| {
+                            let action =
+                                smol::block_on(self.data_source.write_blocking().list_tables())
+                                    .show(ui);
+                            if let Some(action) = action {
+                                self.handle_action(action)
+                            }
+                        });
+                        ui.end_row();
+                        ui.end_row();
+                        ui.heading("Query");
+                        ui.end_row();
+                        ui.vertical(|ui| {
+                            if let Some(query) = self.query.show(ui) {
+                                self.handle_action(query);
+                            }
+                        });
+                        ui.end_row();
+                    });
                 });
             });
 
@@ -241,7 +319,7 @@ impl eframe::App for ParqBenchApp {
                     ui.spinner();
                 } else {
                     ui.centered_and_justified(|ui| {
-                        ui.label("Drag and drop data source here, or use Add Source menu");
+                        ui.label("Drag and drop file or directory here");
                     });
                 }
             });
