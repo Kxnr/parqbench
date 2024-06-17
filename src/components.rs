@@ -1,7 +1,4 @@
-use std::{
-    borrow::Borrow,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use crate::data::{Data, DataSourceListing, Query, SortState, TableDescriptor};
 use datafusion::arrow::{
