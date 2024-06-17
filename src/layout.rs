@@ -52,7 +52,6 @@ impl DataContainer {
 
 #[derive(Default)]
 struct DisplayStates {
-    popover: bool,
     error: bool,
     settings: bool,
 }
@@ -61,7 +60,6 @@ pub struct ParqBenchApp {
     data_source: Arc<RwLock<DataSource>>,
     current_data: DataContainer,
     query: QueryBuilder,
-    // TODO: separate error popover and modal dialog
     popover: Option<Box<dyn Popover>>,
     error_log_channel: (Sender<anyhow::Error>, Receiver<anyhow::Error>),
     errors: ErrorLog,
@@ -181,13 +179,14 @@ impl ParqBenchApp {
             self.display_states.error = open;
         }
 
-        if self.display_states.popover {
-            if let Some(popover) = &mut self.popover {
-                let (open, action) = popover.popover(ctx);
-                self.display_states.popover = open;
-                if let Some(action) = action {
-                    self.handle_action(action);
-                }
+        if let Some(popover) = &mut self.popover {
+            // TODO: minimize, rather than destroy
+            let (open, action) = popover.popover(ctx);
+            if !open {
+                self.popover = None;
+            }
+            if let Some(action) = action {
+                self.handle_action(action);
             }
         }
     }
@@ -251,7 +250,7 @@ impl eframe::App for ParqBenchApp {
                 egui::warn_if_debug_build(ui);
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("⚙").clicked() {
-                        self.display_states.settings = true;
+                        self.display_states.settings = !self.display_states.settings;
                     }
                 });
             });
@@ -271,7 +270,7 @@ impl eframe::App for ParqBenchApp {
                         .clicked()
                     {
                         // FIXME: use an action for self-referential popovers
-                        self.display_states.error = true;
+                        self.display_states.error = !self.display_states.error;
                     }
                 };
             });
