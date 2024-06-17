@@ -167,20 +167,15 @@ impl Popover for AddDataSource {
                                 };
                                 ui.end_row();
 
-                                if let Some(path) = self
-                                    .file_dialog
-                                    .as_mut()
-                                    .filter(|fd| fd.state() != DialogState::Closed)
-                                    .and_then(|dialog| {
-                                        dialog.update(ctx).selected().map(|pth| {
-                                            pth.to_str()
-                                                .expect("Could not convert path to String")
-                                                .to_owned()
-                                        })
-                                    })
-                                {
-                                    self.path = path;
-                                };
+                                if let Some(dialog) = self.file_dialog.as_mut() {
+                                    dialog.update(ctx);
+                                    if let Some(path) = dialog.take_selected() {
+                                        self.path = path
+                                            .to_str()
+                                            .expect("Could not convert path to String")
+                                            .to_owned()
+                                    };
+                                }
                             }
                             SourceType::Azure => {
                                 // TODO: support https:// url that includes account, container, and path
@@ -202,18 +197,16 @@ impl Popover for AddDataSource {
                         ui.end_row();
                     });
                 ui.vertical_centered_justified(|ui| {
-                    ui.horizontal(|ui| {
-                        if ui.button("add").clicked() {
-                            if let Ok(table) = self.build() {
-                                action = Some(Action::AddSource(table));
-                            }
+                    if ui.button("add").clicked() {
+                        if let Ok(table) = self.build() {
+                            action = Some(Action::AddSource(table));
                         }
-                        if ui.button("load").clicked() {
-                            if let Ok(table) = self.build() {
-                                action = Some(Action::LoadSource(table));
-                            }
+                    }
+                    if ui.button("load").clicked() {
+                        if let Ok(table) = self.build() {
+                            action = Some(Action::LoadSource(table));
                         }
-                    });
+                    }
                 });
             });
 
