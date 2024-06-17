@@ -137,69 +137,75 @@ impl Popover for AddDataSource {
             .collapsible(false)
             .open(&mut open)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.source_type, SourceType::Local, "Local");
-                    ui.selectable_value(&mut self.source_type, SourceType::Azure, "Azure");
-                });
+                egui::Grid::new("Add Data Source")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.scope(|ui| {
+                            ui.selectable_value(&mut self.source_type, SourceType::Local, "Local");
+                            ui.selectable_value(&mut self.source_type, SourceType::Azure, "Azure");
+                        });
+                        ui.end_row();
 
-                ui.horizontal(|ui| {
-                    ui.label("Table Name");
-                    ui.text_edit_singleline(&mut self.table_name);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Extension");
-                    ui.text_edit_singleline(&mut self.extension);
-                });
-                match self.source_type {
-                    SourceType::Local => {
-                        ui.horizontal(|ui| {
-                            ui.label("Path");
-                            ui.text_edit_singleline(&mut self.path);
-                            if ui.button("Browse...").clicked() {
-                                let dialog = self.file_dialog.get_or_insert(FileDialog::new());
-                                dialog.select_file();
-                            };
-                            if let Some(path) = self.file_dialog.as_mut().and_then(|dialog| {
-                                dialog.update(ctx).selected().map(|pth| {
-                                    pth.to_str()
-                                        .expect("Could not convert path to String")
-                                        .to_owned()
-                                })
-                            }) {
-                                self.path = path;
+                        ui.checkbox(&mut self.read_metadata, "Read Metadata");
+                        ui.end_row();
+
+                        ui.label("Table Name");
+                        ui.text_edit_singleline(&mut self.table_name);
+                        ui.end_row();
+
+                        ui.label("Extension");
+                        ui.text_edit_singleline(&mut self.extension);
+                        ui.end_row();
+                        match self.source_type {
+                            SourceType::Local => {
+                                ui.label("Path");
+                                ui.text_edit_singleline(&mut self.path);
+                                if ui.button("Browse...").clicked() {
+                                    let dialog = self.file_dialog.get_or_insert(FileDialog::new());
+                                    dialog.select_file();
+                                };
+                                ui.end_row();
+
+                                if let Some(path) = self.file_dialog.as_mut().and_then(|dialog| {
+                                    dialog.update(ctx).selected().map(|pth| {
+                                        pth.to_str()
+                                            .expect("Could not convert path to String")
+                                            .to_owned()
+                                    })
+                                }) {
+                                    self.path = path;
+                                };
+                            }
+                            SourceType::Azure => {
+                                // TODO: support https:// url that includes account, container, and path
+                                ui.label("Account");
+                                ui.text_edit_singleline(&mut self.account);
+                                ui.end_row();
+
+                                ui.label("Container");
+                                ui.text_edit_singleline(&mut self.container);
+                                ui.end_row();
+
+                                ui.label("Path");
+                                ui.text_edit_singleline(&mut self.path);
+                                ui.end_row();
+                            }
+                        }
+                        ui.end_row();
+                        ui.scope(|ui| {
+                            if ui.button("add").clicked() {
+                                if let Ok(table) = self.build() {
+                                    action = Some(Action::AddSource(table));
+                                }
+                            }
+                            if ui.button("load").clicked() {
+                                if let Ok(table) = self.build() {
+                                    action = Some(Action::LoadSource(table));
+                                }
                             }
                         });
-                    }
-                    SourceType::Azure => {
-                        // TODO: support https:// url that includes account, container, and path
-                        ui.horizontal(|ui| {
-                            ui.label("Account");
-                            ui.text_edit_singleline(&mut self.account);
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Container");
-                            ui.text_edit_singleline(&mut self.container);
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Path");
-                            ui.text_edit_singleline(&mut self.path);
-                        });
-                    }
-                }
-                ui.checkbox(&mut self.read_metadata, "Read Metadata");
-                ui.horizontal(|ui| {
-                    // TODO: close dialog
-                    if ui.button("add").clicked() {
-                        if let Ok(table) = self.build() {
-                            action = Some(Action::AddSource(table));
-                        }
-                    }
-                    if ui.button("load").clicked() {
-                        if let Ok(table) = self.build() {
-                            action = Some(Action::LoadSource(table));
-                        }
-                    }
-                });
+                        ui.end_row();
+                    });
             });
 
         (open, action)
@@ -330,20 +336,18 @@ impl Show for DataSourceListing {
     fn show(&self, ui: &mut Ui) -> Option<Action> {
         // TODO: rename table
         let mut action = None;
-        ui.collapsing("Sources", |ui| {
-            for (table_name, table_definition) in self.iter().sorted_by_key(|x| x.0) {
-                ui.collapsing(table_name, |ui| {
-                    // TODO: show shouldn't need an `&mut` for read only views
-                    Arc::make_mut(&mut table_definition.schema()).show(ui);
-                    if ui.button("Load").clicked() {
-                        action = Some(Action::QuerySource(Query::TableName(table_name.to_owned())));
-                    }
-                });
-            }
-            if ui.button("Add Source").clicked() {
-                action = Some(Action::ShowPopover(Box::<AddDataSource>::default()));
-            }
-        });
+        for (table_name, table_definition) in self.iter().sorted_by_key(|x| x.0) {
+            ui.collapsing(table_name, |ui| {
+                // TODO: show shouldn't need an `&mut` for read only views
+                Arc::make_mut(&mut table_definition.schema()).show(ui);
+                if ui.button("Load").clicked() {
+                    action = Some(Action::QuerySource(Query::TableName(table_name.to_owned())));
+                }
+            });
+        }
+        if ui.button("Add Source").clicked() {
+            action = Some(Action::ShowPopover(Box::<AddDataSource>::default()));
+        }
         action
     }
 }

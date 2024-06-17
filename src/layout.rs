@@ -182,19 +182,17 @@ impl eframe::App for ParqBenchApp {
         egui::SidePanel::left("side_panel")
             .resizable(true)
             .show(ctx, |ui| {
-                // TODO: collapsing headers
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.collapsing("Data", |ui| {
-                        let action =
-                            smol::block_on(self.data_source.write_blocking().list_tables())
-                                .show(ui);
-                        if let Some(action) = action {
-                            self.handle_action(action)
-                        }
-                        if let Some(query) = self.query.show(ui) {
-                            self.handle_action(query);
-                        }
-                    });
+                    ui.heading("Data Sources");
+                    let action =
+                        smol::block_on(self.data_source.write_blocking().list_tables()).show(ui);
+                    if let Some(action) = action {
+                        self.handle_action(action)
+                    }
+                    ui.heading("Query");
+                    if let Some(query) = self.query.show(ui) {
+                        self.handle_action(query);
+                    }
                 });
             });
 
