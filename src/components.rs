@@ -146,6 +146,13 @@ impl Popover for AddDataSource {
                         });
                         ui.end_row();
 
+                        if let SourceType::Azure = self.source_type {
+                            ui.label(
+                                "Requires the azure cli to be installed and available on PATH",
+                            );
+                            ui.end_row()
+                        }
+
                         ui.checkbox(&mut self.read_metadata, "Read Metadata");
                         ui.end_row();
 
@@ -338,8 +345,7 @@ impl Show for DataSourceListing {
         let mut action = None;
         for (table_name, table_definition) in self.iter().sorted_by_key(|x| x.0) {
             ui.collapsing(table_name, |ui| {
-                // TODO: show shouldn't need an `&mut` for read only views
-                Arc::make_mut(&mut table_definition.schema()).show(ui);
+                table_definition.schema().show(ui);
                 if ui.button("Load").clicked() {
                     action = Some(Action::QuerySource(Query::TableName(table_name.to_owned())));
                 }

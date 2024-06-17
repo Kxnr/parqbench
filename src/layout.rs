@@ -1,4 +1,5 @@
 use eframe;
+use egui::Layout;
 
 use crate::{
     components::{Action, Popover, QueryBuilder, Settings, Show, ShowMut},
@@ -8,15 +9,57 @@ use async_compat::Compat;
 use core::default::Default;
 use smol::lock::RwLock;
 use smol::Task;
-use std::sync::Arc;
+use std::{
+    mem,
+    sync::{
+        mpsc::{channel, Receiver, Sender},
+        Arc,
+    },
+};
+
+enum DataContainer {
+    Some(Data),
+    Pending(Task<DataResult>),
+    None,
+}
+
+impl DataContainer {
+    fn apply(&mut self, apply: impl FnOnce(Data) -> Task<DataResult>) {
+        let old = mem::replace(self, DataContainer::None);
+        *self = match old {
+            DataContainer::Some(data) => Self::Pending(apply(data)),
+            _ => old,
+        };
+    }
+
+    fn try_resolve(&mut self) -> Option<DataResult> {
+        match self {
+            Self::Pending(task) => {
+                if task.is_finished() {
+                    Some(smol::block_on(task))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn pending(&self) -> bool {
+        match self {
+            Self::Pending(_) => true,
+            _ => false,
+        }
+    }
+}
 
 pub struct ParqBenchApp {
     data_source: Arc<RwLock<DataSource>>,
-    current_data: Option<Data>,
+    current_data: DataContainer,
     query: QueryBuilder,
     // TODO: separate error popover and modal dialog
     popover: Option<Box<dyn Popover>>,
-    data_future: Option<Task<DataResult>>,
+    error_log_channel: (Sender<anyhow::Error>, Receiver<anyhow::Error>),
 }
 
 impl Default for ParqBenchApp {
@@ -24,9 +67,9 @@ impl Default for ParqBenchApp {
         Self {
             data_source: Arc::new(RwLock::new(DataSource::default())),
             query: QueryBuilder::default(),
-            current_data: None,
+            current_data: DataContainer::None,
             popover: None,
-            data_future: None,
+            error_log_channel: channel(),
         }
     }
 }
@@ -41,36 +84,29 @@ impl ParqBenchApp {
         match action {
             Action::AddSource(table) => {
                 let data_source = self.data_source.clone();
+                let channel = self.error_log_channel.0.clone();
                 smol::spawn(Compat::new(async move {
-                    let maybe_err = data_source
-                        .clone()
-                        .write()
-                        .await
-                        .add_data_source(table)
-                        .await;
-                    // FIXME: show error popover
-                    _ = dbg!(maybe_err);
+                    if let Err(err) = data_source.write().await.add_data_source(table).await {
+                        // if the channel is closed, not much we can do
+                        let _ = channel.send(err);
+                    }
                 }))
                 .detach();
             }
             Action::QuerySource(query) => {
+                // TODO: use apply
                 let data_source = self.data_source.clone();
-                self.data_future = Some(smol::spawn(Compat::new(async move {
+                self.current_data = DataContainer::Pending(smol::spawn(Compat::new(async move {
                     data_source.read().await.query(query).await
                 })));
             }
             Action::LoadSource(table) => {
+                // TODO: use apply
                 let data_source = self.data_source.clone();
-                self.data_future = Some(smol::spawn(Compat::new(async move {
-                    let table_name = data_source
-                        .clone()
-                        .write()
-                        .await
-                        .add_data_source(table)
-                        .await?;
+                self.current_data = DataContainer::Pending(smol::spawn(Compat::new(async move {
+                    let table_name = data_source.write().await.add_data_source(table).await?;
                     dbg!(&table_name);
                     data_source
-                        .clone()
                         .read()
                         .await
                         .query(Query::TableName(table_name))
@@ -78,16 +114,24 @@ impl ParqBenchApp {
                 })));
             }
             Action::SortData((col, sort_state)) => {
-                self.current_data = self
-                    .current_data
-                    .take()
-                    .and_then(|data| smol::block_on(data.sort(col, sort_state)).ok());
+                self.current_data
+                    .apply(|data| smol::spawn(async move { data.sort(col, sort_state).await }));
             }
+            // if let DataContainer::Some(data) = self.current_data {
+            //     self.current_data =
+            //         DataContainer::Pending(smol::spawn(Compat::new));
+            // }
             Action::ShowPopover(popover) => {
                 self.popover = Some(popover);
             }
             _ => {}
         };
+    }
+
+    fn check_error_channel(&mut self) {
+        if let Ok(err) = self.error_log_channel.1.try_recv() {
+            self.handle_action(Action::ShowPopover(Box::new(err)));
+        }
     }
 
     fn check_popover(&mut self, ctx: &egui::Context) {
@@ -103,23 +147,18 @@ impl ParqBenchApp {
     }
 
     fn check_data_future(&mut self) -> bool {
-        // hide implementation details of waiting for data to load
-        // FIXME: should do some error handling/notification
-        if let Some(future) = self.data_future.as_mut() {
-            if future.is_finished() {
-                match smol::block_on(future) {
-                    Ok(data) => {
-                        self.current_data = Some(data);
-                    }
-                    Err(msg) => self.popover = Some(Box::new(msg)),
-                };
-                self.data_future = None;
+        if let Some(result) = self.current_data.try_resolve() {
+            match result {
+                Ok(data) => {
+                    self.current_data = DataContainer::Some(data);
+                }
+                Err(msg) => {
+                    self.handle_action(Action::ShowPopover(Box::new(msg)));
+                    self.current_data = DataContainer::None;
+                }
             };
-            // This will switch from true to false one frame late, but makes this logic simple
-            true
-        } else {
-            false
-        }
+        };
+        self.current_data.pending()
     }
 }
 
@@ -129,6 +168,7 @@ impl eframe::App for ParqBenchApp {
         // Frame setup. Check if various interactions are in progress and resolve them
         //////////
 
+        self.check_error_channel();
         self.check_popover(ctx);
         let loading = self.check_data_future();
 
@@ -161,19 +201,11 @@ impl eframe::App for ParqBenchApp {
         //////////
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    ui.menu_button("About", |ui| {
-                        ui.label("Built with egui");
-                    });
-
-                    if ui.button("Settings...").clicked() {
+            ui.horizontal(|ui| {
+                egui::warn_if_debug_build(ui);
+                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("⚙").clicked() {
                         self.popover = Some(Box::new(Settings {}));
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Quit").clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
             });
@@ -184,33 +216,29 @@ impl eframe::App for ParqBenchApp {
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.heading("Data Sources");
+                    ui.separator();
                     let action =
                         smol::block_on(self.data_source.write_blocking().list_tables()).show(ui);
                     if let Some(action) = action {
                         self.handle_action(action)
                     }
+                    ui.add_space(4f32);
                     ui.heading("Query");
+                    ui.separator();
                     if let Some(query) = self.query.show(ui) {
                         self.handle_action(query);
                     }
                 });
             });
 
-        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                egui::warn_if_debug_build(ui);
-                if loading {
-                    ui.spinner();
-                }
-            });
-        });
-
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::horizontal().show(ui, |ui| {
-                if let Some(data) = self.current_data.as_mut() {
+                if let DataContainer::Some(ref data) = self.current_data {
                     if let Some(action) = data.show(ui) {
                         self.handle_action(action);
                     }
+                } else if loading {
+                    ui.spinner();
                 } else {
                     ui.centered_and_justified(|ui| {
                         ui.label("Drag and drop data source here, or use Add Source menu");
