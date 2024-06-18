@@ -5,7 +5,7 @@ use datafusion::arrow::{
     datatypes::{DataType, Schema},
     util::display::array_value_to_string,
 };
-use egui::{Align, Context, Id, Response, Ui};
+use egui::{Context, Id, Response, Ui};
 use egui_extras::{Column, TableBuilder};
 use egui_file_dialog::FileDialog;
 use egui_json_tree::JsonTree;
