@@ -341,7 +341,7 @@ impl EditableLabel for Ui {
                     .lock()
                     .expect("Failed to retrieve label from persisted State");
                 let response = self.text_edit_singleline(&mut *label);
-                if response.lost_focus() || !response.has_focus() {
+                if response.lost_focus() {
                     self.memory_mut(|mem| mem.data.remove::<State>(id));
                     self.ctx().request_repaint();
                     dbg!(Some(label.to_string()))

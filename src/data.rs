@@ -128,14 +128,17 @@ fn get_read_options(table: &TableDescriptor) -> ParquetReadOptions<'_> {
     }
 }
 
-fn unc_path_to_url(path: &Path) -> anyhow::Result<Url> {
-    let url = if path.is_file() {
+fn filesystem_path_to_url(path: &Path) -> anyhow::Result<Url> {
+    if path.is_file() {
         Url::from_file_path(path)
     } else {
         Url::from_directory_path(path)
     }
-    .map_err(|_| anyhow!("Could not create Url from path."))?;
+    .map_err(|_| anyhow!("Could not create Url from path."))
+}
 
+fn unc_path_to_url(path: &Path) -> anyhow::Result<Url> {
+    let url = filesystem_path_to_url(path)?;
     let mut scheme = url
         .host()
         .expect("UNC format always has a host")
@@ -169,8 +172,7 @@ fn make_url_from_path(path: &str) -> anyhow::Result<Url> {
         Ok(path) => {
             match unc_prefix_regex.find(path.to_str().expect("Could not convert path to string.")) {
                 Some(_) => unc_path_to_url(&path)?,
-                None => Url::from_directory_path(path)
-                    .map_err(|_| anyhow!("Could not parse directory"))?,
+                None => filesystem_path_to_url(&path)?,
             }
         }
         Err(_) => Url::parse(path.borrow())?,
@@ -278,8 +280,6 @@ impl DataSource {
     }
 
     pub async fn add_data_source(&mut self, source: TableDescriptor) -> anyhow::Result<String> {
-        // TODO: pass in data source name
-        // TODO: register ListingTables rather than particular formats
         self.add_object_store_for_table(&source)?;
 
         // TODO: get &str directly, rather than using String
@@ -294,8 +294,8 @@ impl DataSource {
 
         let read_options = get_read_options(&source);
 
-        dbg!("registering source");
         // TODO: register listing table rather than
+
         self.ctx
             .register_parquet(&table_name, source.url.as_ref(), read_options)
             .await?;
