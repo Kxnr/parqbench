@@ -216,6 +216,9 @@ impl eframe::App for ParqBenchApp {
         self.check_error_channel();
         self.check_floating_displays(ctx);
         let loading = self.check_data_future();
+        if loading {
+            ctx.request_repaint();
+        }
 
         ctx.input(|i| {
             if let Some(file) = i.raw.dropped_files.last() {

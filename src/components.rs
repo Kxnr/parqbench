@@ -239,7 +239,7 @@ impl Show for Data {
 
         let text_height = egui::TextStyle::Body.resolve(style).size;
         // stop columns from getting too small to be usable
-        let min_col_width = style.spacing.interact_size.x;
+        let min_col_width = style.spacing.text_edit_width / 2f32;
 
         // we put buttons in the header, so make sure that the vertical size of the header includes
         // the button size and the normal padding around buttons
@@ -248,11 +248,13 @@ impl Show for Data {
 
         TableBuilder::new(ui)
             .striped(true)
-            .stick_to_bottom(true)
             .auto_shrink(false)
             .max_scroll_height(f32::INFINITY)
             .columns(
-                Column::remainder().at_least(min_col_width).clip(true),
+                Column::remainder()
+                    .at_least(min_col_width)
+                    .clip(true)
+                    .resizable(true),
                 self.data.num_columns(),
             )
             .resizable(true)
@@ -339,16 +341,16 @@ impl EditableLabel for Ui {
                     .lock()
                     .expect("Failed to retrieve label from persisted State");
                 let response = self.text_edit_singleline(&mut *label);
-                if response.lost_focus() {
+                if response.lost_focus() || !response.has_focus() {
                     self.memory_mut(|mem| mem.data.remove::<State>(id));
-                    Some(label.to_string())
+                    self.ctx().request_repaint();
+                    dbg!(Some(label.to_string()))
                 } else {
                     None
                 }
             }
             None => {
                 if self.selectable_label(false, label).clicked() {
-                    dbg!("selected");
                     self.memory_mut(|mem| {
                         mem.data
                             .insert_temp(id, Arc::new(Mutex::new(label.to_owned())));
@@ -362,7 +364,6 @@ impl EditableLabel for Ui {
 
 impl Show for DataSourceListing {
     fn show(&self, ui: &mut Ui) -> Option<Action> {
-        // TODO: rename table
         let mut action = None;
         for (table_name, table_definition) in self.iter().sorted_by_key(|x| x.0) {
             egui::collapsing_header::CollapsingState::load_with_default_open(
@@ -444,9 +445,6 @@ pub trait ExtraInteractions {
 
 impl ExtraInteractions for Ui {
     fn multi_state_button(&mut self, state: &mut impl SelectionDepth, label: &str) -> Response {
-        // TODO: this implementation doesn't implement column selection or mutual exclusivity,
-        // TODO: but is very simple, the three/multistate toggle idea is worth revisiting at some
-        // TODO: point
         let mut response = self.button(format!("{} {}", state.format(), label));
         if response.clicked() {
             *state = state.inc();
