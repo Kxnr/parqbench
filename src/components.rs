@@ -246,11 +246,11 @@ impl Show for Data {
         let header_height = style.spacing.interact_size.y + (2.0f32 * style.spacing.item_spacing.y);
         let mut action: Option<Action> = None;
 
-        // FIXME: this will certainly break if there are no columns
         TableBuilder::new(ui)
             .striped(true)
             .stick_to_bottom(true)
             .auto_shrink(false)
+            .max_scroll_height(f32::INFINITY)
             .columns(
                 Column::remainder().at_least(min_col_width).clip(true),
                 self.data.num_columns(),
@@ -303,8 +303,6 @@ impl Show for Data {
         action
     }
 }
-
-// FIXME: parquet metadata is not loaded by either the Schema or DataSourceListing displays
 
 impl Show for Schema {
     fn show(&self, ui: &mut Ui) -> Option<Action> {
