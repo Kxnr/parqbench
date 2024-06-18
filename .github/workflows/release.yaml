@@ -19,3 +19,5 @@ jobs:
         with:
           RUSTTARGET: ${{ matrix.target }}
           EXTRA_FILES: "README.md LICENSE"
+          TOOLCHAIN_VERSION: "1.78"
+          ARCHIVE_TYPES: "tar.gz"
