@@ -375,11 +375,9 @@ impl Show for DataSourceListing {
                 if let Some(rename) = ui.editable_label(table_name.to_owned().into(), table_name) {
                     action = Some(Action::RenameSource((table_name.to_owned(), rename)));
                 }
-                ui.with_layout(egui::Layout::top_down(Align::Center), |ui| {
-                    if ui.small_button("✖").clicked() {
-                        action = Some(Action::DeleteSource(table_name.to_owned()));
-                    }
-                });
+                if ui.small_button("✖").clicked() {
+                    action = Some(Action::DeleteSource(table_name.to_owned()));
+                }
             })
             .body(|ui| {
                 table_definition.schema().show(ui);
