@@ -25,14 +25,18 @@ fn main() {
     // Log to stdout (if you run with `RUST_LOG=debug`).
 
     use data::TableDescriptor;
+    use eframe::icon_data::from_png_bytes;
     tracing_subscriber::fmt::init();
 
     let args = Args::from_args();
+    let icon =
+        from_png_bytes(include_bytes!("../assets/icon-circle.png")).expect("Failed to load icon");
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([320.0, 240.0])
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true)
+            .with_icon(icon),
         ..Default::default()
     };
 
