@@ -5,7 +5,7 @@ use datafusion::arrow::{
     datatypes::{DataType, Schema},
     util::display::array_value_to_string,
 };
-use egui::{Context, Id, Response, Ui};
+use egui::{Align, Context, Id, Response, Ui};
 use egui_extras::{Column, TableBuilder};
 use egui_file_dialog::FileDialog;
 use egui_json_tree::JsonTree;
@@ -375,9 +375,11 @@ impl Show for DataSourceListing {
                 if let Some(rename) = ui.editable_label(table_name.to_owned().into(), table_name) {
                     action = Some(Action::RenameSource((table_name.to_owned(), rename)));
                 }
-                if ui.small_button("✖").clicked() {
-                    action = Some(Action::DeleteSource(table_name.to_owned()));
-                }
+                ui.with_layout(egui::Layout::top_down(Align::Center), |ui| {
+                    if ui.small_button("✖").clicked() {
+                        action = Some(Action::DeleteSource(table_name.to_owned()));
+                    }
+                });
             })
             .body(|ui| {
                 table_definition.schema().show(ui);
