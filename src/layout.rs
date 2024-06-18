@@ -306,19 +306,22 @@ impl eframe::App for ParqBenchApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            if let DataContainer::Some(ref data) = self.current_data {
-                if let Some(action) = data.show(ui) {
-                    self.handle_action(action);
+            // TODO: move the horizontal scroll into the table
+            egui::ScrollArea::horizontal().show(ui, |ui| {
+                if let DataContainer::Some(ref data) = self.current_data {
+                    if let Some(action) = data.show(ui) {
+                        self.handle_action(action);
+                    }
+                } else if loading {
+                    ui.centered_and_justified(|ui| {
+                        ui.spinner();
+                    });
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label("Drag and drop file or directory here");
+                    });
                 }
-            } else if loading {
-                ui.centered_and_justified(|ui| {
-                    ui.spinner();
-                });
-            } else {
-                ui.centered_and_justified(|ui| {
-                    ui.label("Drag and drop file or directory here");
-                });
-            }
+            });
         });
     }
 }
