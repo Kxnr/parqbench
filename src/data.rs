@@ -110,7 +110,6 @@ impl Default for DataSource {
 pub struct Data {
     // TOOD: arc context into this struct?
     pub data: RecordBatch,
-    pub query: Query,
     pub sort_state: Option<(String, SortState)>,
 }
 
@@ -130,8 +129,12 @@ fn get_read_options(table: &TableDescriptor) -> ParquetReadOptions<'_> {
 }
 
 fn unc_path_to_url(path: &Path) -> anyhow::Result<Url> {
-    let url =
-        Url::from_directory_path(path).map_err(|_| anyhow!("Could not create Url from path."))?;
+    let url = if path.is_file() {
+        Url::from_file_path(path)
+    } else {
+        Url::from_directory_path(path)
+    }
+    .map_err(|_| anyhow!("Could not create Url from path."))?;
 
     let mut scheme = url
         .host()
@@ -214,9 +217,9 @@ impl DataSource {
 
     fn add_object_store_for_table(&mut self, table: &TableDescriptor) -> anyhow::Result<()> {
         match table.url.scheme() {
-            "wsl" => {
+            "wsl" | "wsllocalhost" => {
                 let prefix = format!(
-                    r"\\?\UNC\wsl$\{}\",
+                    r"\\?\UNC\wsl.localhost\{}\",
                     table.url.host().expect("WSL url must have host.")
                 );
                 let object_store = LocalFileSystem::new_with_prefix(prefix)?;
@@ -250,6 +253,28 @@ impl DataSource {
         };
 
         Ok(())
+    }
+
+    pub fn rename_data_source(
+        &mut self,
+        from_name: &str,
+        to_name: &str,
+    ) -> anyhow::Result<Arc<dyn TableProvider>> {
+        let table = self.delete_data_source(from_name)?;
+        // will be added back to cache when accessed, don't need to add now
+        self.ctx
+            .register_table(to_name, table)
+            .map_err(|err| anyhow!(err))
+            .and_then(|table| table.ok_or(anyhow!("Error registering table")))
+    }
+
+    pub fn delete_data_source(&mut self, source: &str) -> anyhow::Result<Arc<dyn TableProvider>> {
+        if let Some(table) = self.ctx.deregister_table(source)? {
+            self.cached_schemas.remove(source);
+            Ok(table)
+        } else {
+            Err(anyhow!("Error retrieving table"))
+        }
     }
 
     pub async fn add_data_source(&mut self, source: TableDescriptor) -> anyhow::Result<String> {
@@ -290,7 +315,6 @@ impl DataSource {
             // TODO: will record batches have the same schema, or should these really be
             // TODO: separate data entries?
             data: concat_record_batches(data)?,
-            query,
             sort_state: None,
         })
     }
@@ -316,7 +340,6 @@ impl Data {
             // TODO: will record batches have the same schema, or should these really be
             // TODO: separate data entries?
             data: concat_record_batches(data)?,
-            query: self.query,
             sort_state: Some((col, sort)),
         })
     }
