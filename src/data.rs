@@ -278,8 +278,6 @@ impl DataSource {
     }
 
     pub async fn add_data_source(&mut self, source: TableDescriptor) -> anyhow::Result<String> {
-        // TODO: pass in data source name
-        // TODO: register ListingTables rather than particular formats
         self.add_object_store_for_table(&source)?;
 
         // TODO: get &str directly, rather than using String
