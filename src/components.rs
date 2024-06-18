@@ -1,24 +1,30 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::data::{Data, DataSourceListing, Query, SortState, TableDescriptor};
 use datafusion::arrow::{
     datatypes::{DataType, Schema},
     util::display::array_value_to_string,
 };
-use egui::{Context, Response, Ui};
+use egui::{Context, Id, Response, Ui};
 use egui_extras::{Column, TableBuilder};
 use egui_file_dialog::FileDialog;
 use egui_json_tree::JsonTree;
 use itertools::Itertools;
 use serde_json::Value;
 
+pub type ErrorLog = Vec<anyhow::Error>;
+type FromName = String;
+type ToName = String;
+
 pub enum Action {
     AddSource(TableDescriptor),
     QuerySource(Query),
     LoadSource(TableDescriptor),
-    DeleteSource,
+    DeleteSource(String),
+    RenameSource((FromName, ToName)),
     SortData((String, SortState)),
     ShowPopover(Box<dyn Popover>),
+    LogError(anyhow::Error),
 }
 
 pub trait Popover {
@@ -33,8 +39,6 @@ pub trait ShowMut {
 pub trait Show {
     fn show(&self, ui: &mut Ui) -> Option<Action>;
 }
-
-pub struct Settings {}
 
 #[derive(Default)]
 pub struct QueryBuilder {
@@ -59,37 +63,25 @@ pub struct AddDataSource {
     read_metadata: bool,
 }
 
-impl Popover for Settings {
+impl Popover for ErrorLog {
     fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>) {
         let mut open = true;
 
-        egui::Window::new("Settings")
+        egui::Window::new("Error Log")
             .collapsible(false)
             .open(&mut open)
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ctx.style_ui(ui);
-                });
+                egui::ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .show(ui, |ui| {
+                        egui::Grid::new("error log").show(ui, |ui| {
+                            for err in self.iter() {
+                                ui.label(format!("{}", err));
+                                ui.end_row();
+                            }
+                        });
+                    });
             });
-
-        (open, None)
-    }
-}
-
-impl Popover for anyhow::Error {
-    fn popover(&mut self, ctx: &Context) -> (bool, Option<Action>) {
-        let mut open = true;
-
-        egui::Window::new("Error")
-            .collapsible(false)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.label(format!("Error: {:?}", self));
-                    ui.set_enabled(false);
-                });
-            });
-
         (open, None)
     }
 }
@@ -137,58 +129,66 @@ impl Popover for AddDataSource {
             .collapsible(false)
             .open(&mut open)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.source_type, SourceType::Local, "Local");
-                    ui.selectable_value(&mut self.source_type, SourceType::Azure, "Azure");
-                });
+                egui::Grid::new("Add Data Source")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.scope(|ui| {
+                            ui.selectable_value(&mut self.source_type, SourceType::Local, "Local");
+                            ui.selectable_value(&mut self.source_type, SourceType::Azure, "Azure");
+                        });
 
-                ui.horizontal(|ui| {
-                    ui.label("Table Name");
-                    ui.text_edit_singleline(&mut self.table_name);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Extension");
-                    ui.text_edit_singleline(&mut self.extension);
-                });
-                match self.source_type {
-                    SourceType::Local => {
-                        ui.horizontal(|ui| {
-                            ui.label("Path");
-                            ui.text_edit_singleline(&mut self.path);
-                            if ui.button("Browse...").clicked() {
-                                let dialog = self.file_dialog.get_or_insert(FileDialog::new());
-                                dialog.select_file();
-                            };
-                            if let Some(path) = self.file_dialog.as_mut().and_then(|dialog| {
-                                dialog.update(ctx).selected().map(|pth| {
-                                    pth.to_str()
-                                        .expect("Could not convert path to String")
-                                        .to_owned()
-                                })
-                            }) {
-                                self.path = path;
+                        ui.checkbox(&mut self.read_metadata, "Read Metadata");
+                        ui.end_row();
+
+                        ui.label("Table Name");
+                        ui.text_edit_singleline(&mut self.table_name);
+                        ui.end_row();
+
+                        ui.label("Extension");
+                        ui.text_edit_singleline(&mut self.extension);
+                        ui.end_row();
+                        match self.source_type {
+                            SourceType::Local => {
+                                ui.label("Path");
+                                ui.text_edit_singleline(&mut self.path);
+                                if ui.button("Browse...").clicked() {
+                                    let dialog = self.file_dialog.get_or_insert(
+                                        FileDialog::new().show_path_edit_button(true),
+                                    );
+                                    dialog.select_file();
+                                };
+                                ui.end_row();
+
+                                if let Some(dialog) = self.file_dialog.as_mut() {
+                                    dialog.update(ctx);
+                                    if let Some(path) = dialog.take_selected() {
+                                        self.path = path.to_string_lossy().into_owned();
+                                    };
+                                }
                             }
-                        });
-                    }
-                    SourceType::Azure => {
-                        // TODO: support https:// url that includes account, container, and path
-                        ui.horizontal(|ui| {
-                            ui.label("Account");
-                            ui.text_edit_singleline(&mut self.account);
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Container");
-                            ui.text_edit_singleline(&mut self.container);
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Path");
-                            ui.text_edit_singleline(&mut self.path);
-                        });
-                    }
+                            SourceType::Azure => {
+                                // TODO: support https:// url that includes account, container, and path
+                                ui.label("Account");
+                                ui.text_edit_singleline(&mut self.account);
+                                ui.end_row();
+
+                                ui.label("Container");
+                                ui.text_edit_singleline(&mut self.container);
+                                ui.end_row();
+
+                                ui.label("Path");
+                                ui.text_edit_singleline(&mut self.path);
+                                ui.end_row();
+                            }
+                        }
+                        ui.end_row();
+                    });
+                if let SourceType::Azure = self.source_type {
+                    ui.label("Requires the azure cli to be installed and available on PATH");
                 }
-                ui.checkbox(&mut self.read_metadata, "Read Metadata");
-                ui.horizontal(|ui| {
-                    // TODO: close dialog
+
+                ui.add_space(ui.style().spacing.interact_size.y);
+                ui.vertical_centered_justified(|ui| {
                     if ui.button("add").clicked() {
                         if let Ok(table) = self.build() {
                             action = Some(Action::AddSource(table));
@@ -239,20 +239,22 @@ impl Show for Data {
 
         let text_height = egui::TextStyle::Body.resolve(style).size;
         // stop columns from getting too small to be usable
-        let min_col_width = style.spacing.interact_size.x;
+        let min_col_width = style.spacing.text_edit_width / 2f32;
 
         // we put buttons in the header, so make sure that the vertical size of the header includes
         // the button size and the normal padding around buttons
         let header_height = style.spacing.interact_size.y + (2.0f32 * style.spacing.item_spacing.y);
         let mut action: Option<Action> = None;
 
-        // FIXME: this will certainly break if there are no columns
         TableBuilder::new(ui)
             .striped(true)
-            .stick_to_bottom(true)
             .auto_shrink(false)
+            .max_scroll_height(f32::INFINITY)
             .columns(
-                Column::remainder().at_least(min_col_width).clip(true),
+                Column::remainder()
+                    .at_least(min_col_width)
+                    .clip(true)
+                    .resizable(true),
                 self.data.num_columns(),
             )
             .resizable(true)
@@ -304,8 +306,6 @@ impl Show for Data {
     }
 }
 
-// FIXME: parquet metadata is not loaded by either the Schema or DataSourceListing displays
-
 impl Show for Schema {
     fn show(&self, ui: &mut Ui) -> Option<Action> {
         ui.collapsing("Schema", |ui| {
@@ -326,24 +326,69 @@ impl Show for Schema {
     }
 }
 
+trait EditableLabel {
+    fn editable_label(&mut self, id: Id, label: &str) -> Option<String>;
+}
+
+impl EditableLabel for Ui {
+    fn editable_label(&mut self, id: Id, label: &str) -> Option<String> {
+        type State = Arc<Mutex<String>>;
+
+        let current_label: Option<State> = self.memory_mut(|mem| mem.data.get_temp(id).clone());
+        match current_label.as_ref() {
+            Some(label) => {
+                let mut label = label
+                    .lock()
+                    .expect("Failed to retrieve label from persisted State");
+                let response = self.text_edit_singleline(&mut *label);
+                if response.lost_focus() || !response.has_focus() {
+                    self.memory_mut(|mem| mem.data.remove::<State>(id));
+                    self.ctx().request_repaint();
+                    dbg!(Some(label.to_string()))
+                } else {
+                    None
+                }
+            }
+            None => {
+                if self.selectable_label(false, label).clicked() {
+                    self.memory_mut(|mem| {
+                        mem.data
+                            .insert_temp(id, Arc::new(Mutex::new(label.to_owned())));
+                    });
+                }
+                None
+            }
+        }
+    }
+}
+
 impl Show for DataSourceListing {
     fn show(&self, ui: &mut Ui) -> Option<Action> {
-        // TODO: rename table
         let mut action = None;
-        ui.collapsing("Sources", |ui| {
-            for (table_name, table_definition) in self.iter().sorted_by_key(|x| x.0) {
-                ui.collapsing(table_name, |ui| {
-                    // TODO: show shouldn't need an `&mut` for read only views
-                    Arc::make_mut(&mut table_definition.schema()).show(ui);
-                    if ui.button("Load").clicked() {
-                        action = Some(Action::QuerySource(Query::TableName(table_name.to_owned())));
-                    }
-                });
-            }
-            if ui.button("Add Source").clicked() {
-                action = Some(Action::ShowPopover(Box::<AddDataSource>::default()));
-            }
-        });
+        for (table_name, table_definition) in self.iter().sorted_by_key(|x| x.0) {
+            egui::collapsing_header::CollapsingState::load_with_default_open(
+                ui.ctx(),
+                format!("{} data source listing", table_name).into(),
+                false,
+            )
+            .show_header(ui, |ui| {
+                if let Some(rename) = ui.editable_label(table_name.to_owned().into(), table_name) {
+                    action = Some(Action::RenameSource((table_name.to_owned(), rename)));
+                }
+                if ui.small_button("✖").clicked() {
+                    action = Some(Action::DeleteSource(table_name.to_owned()));
+                }
+            })
+            .body(|ui| {
+                table_definition.schema().show(ui);
+                if ui.button("Load").clicked() {
+                    action = Some(Action::QuerySource(Query::TableName(table_name.to_owned())));
+                }
+            });
+        }
+        if ui.button("Add Source").clicked() {
+            action = Some(Action::ShowPopover(Box::<AddDataSource>::default()));
+        }
         action
     }
 }
@@ -400,9 +445,6 @@ pub trait ExtraInteractions {
 
 impl ExtraInteractions for Ui {
     fn multi_state_button(&mut self, state: &mut impl SelectionDepth, label: &str) -> Response {
-        // TODO: this implementation doesn't implement column selection or mutual exclusivity,
-        // TODO: but is very simple, the three/multistate toggle idea is worth revisiting at some
-        // TODO: point
         let mut response = self.button(format!("{} {}", state.format(), label));
         if response.clicked() {
             *state = state.inc();
