@@ -3,20 +3,18 @@
 [//]: # ([![dependency status]&#40;https://deps.rs/repo/github/emilk/eframe_template/status.svg&#41;]&#40;https://deps.rs/repo/github/emilk/eframe_template&#41;)
 [//]: # ([![Build Status]&#40;https://github.com/emilk/eframe_template/workflows/CI/badge.svg&#41;]&#40;https://github.com/emilk/eframe_template/actions?workflow=CI&#41;)
 
-A simple, cross-platform, utility for viewing parquet files, built on egui and arrow.
+A simple utility for viewing parquet files, built on egui and arrow.
+
+## About
+
+ParqBench supports loading and querying data from local files, files on WSL (if on windows), and 
+Azure blob storage. Queries support the range of expressions supported by [datafusion](https://docs.rs/datafusion/latest/datafusion/)
+and can combine data from multiple tables. Tables may either be from a single file or a directory of
+files, so long as all files in the directory share the same schema.
 
 ## Installation
 
-Generic, portable binaries for Windows and Linux are available on the [releases page](https://github.com/Kxnr/parqbench/releases).
-
-ParqBench is tested for Linux (Manjaro 22.0, kernel 5.15.60) and Windows 10 (21H2). Releases are built with:
-
-`cargo build --release --target x86_64-pc-windows-gnu`
-
-`cargo build --release --target x86_64-unknown-linux-gnu`
-
-
-The builds are self-contained, portable, executables. The resulting binaries are placed in `target/<target>`.
+Portable binaries for Windows and Linux are available on the [releases page](https://github.com/Kxnr/parqbench/releases).
 
 ## Contribution
 
