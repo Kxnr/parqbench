@@ -292,6 +292,10 @@ impl DataSource {
                 .to_lowercase(),
         };
 
+        if self.ctx.table_exist(&table_name)? {
+            self.delete_data_source(&table_name)?;
+        }
+
         let read_options = get_read_options(&source);
 
         // TODO: register listing table rather than

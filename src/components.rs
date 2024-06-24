@@ -240,6 +240,7 @@ impl Show for Data {
         let text_height = egui::TextStyle::Body.resolve(style).size;
         // stop columns from getting too small to be usable
         let min_col_width = style.spacing.text_edit_width / 2f32;
+        let margin_width = 2.0f32; // default separator width, keeps column resize on screen
 
         // we put buttons in the header, so make sure that the vertical size of the header includes
         // the button size and the normal padding around buttons
@@ -251,11 +252,17 @@ impl Show for Data {
             .auto_shrink(false)
             .max_scroll_height(f32::INFINITY)
             .columns(
-                Column::remainder()
+                Column::auto()
                     .at_least(min_col_width)
                     .clip(true)
                     .resizable(true),
                 self.data.num_columns(),
+            )
+            .column(
+                Column::remainder()
+                    .at_least(margin_width)
+                    .resizable(false)
+                    .clip(false),
             )
             .resizable(true)
             .header(header_height, |mut header| {
@@ -300,6 +307,9 @@ impl Show for Data {
                             );
                         });
                     }
+                    row.col(|_ui| {
+                        // make last empty column to take up remaining space
+                    });
                 });
             });
         action

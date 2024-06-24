@@ -281,6 +281,7 @@ impl eframe::App for ParqBenchApp {
 
         egui::SidePanel::left("side_panel")
             .resizable(true)
+            .default_width(ctx.style().spacing.text_edit_width)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::Grid::new("side_panel").num_columns(1).show(ui, |ui| {
