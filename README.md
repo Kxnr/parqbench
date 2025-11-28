@@ -3,6 +3,8 @@
 [//]: # ([![dependency status]&#40;https://deps.rs/repo/github/emilk/eframe_template/status.svg&#41;]&#40;https://deps.rs/repo/github/emilk/eframe_template&#41;)
 [//]: # ([![Build Status]&#40;https://github.com/emilk/eframe_template/workflows/CI/badge.svg&#41;]&#40;https://github.com/emilk/eframe_template/actions?workflow=CI&#41;)
 
+For a maintained fork, see [polars-view](https://github.com/claudiofsr/polars-view)
+
 A simple utility for viewing parquet files, built on egui and arrow.
 
 ## About
